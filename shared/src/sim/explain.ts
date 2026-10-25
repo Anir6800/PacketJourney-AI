@@ -1,0 +1,59 @@
+import type { SimulationEvent } from './state.ts';
+
+// Explanation templates keyed by event.explainKey. Values come only from event args (engine output).
+const T: Record<string, string> = {
+  'tcp.listen': '{device} opens port {port} passively: {from} → {to}.',
+  'tcp.connect': '{device} starts an active open for {flow} with teaching ISN {iss} (fixed for readability, not a secure random ISN).',
+  'tcp.syn-sent': '{device} sent SYN seq {seq} (the SYN consumes one sequence number): {from} → {to}.',
+  'tcp.syn-rcvd': '{device} received SYN seq {seq}; RCV.NXT = {rcvNxt}: {from} → {to}.',
+  'tcp.established.client': '{device} received SYN-ACK seq {seq} ack {ack}: {from} → {to}. It ACKs, then sends its queued data.',
+  'tcp.established.server': '{device} received ACK {ack} of its SYN: {from} → {to}.',
+  'tcp.ignored': '{device} in {state} ignores this segment: {why}.',
+  'tcp.dup-syn': 'Duplicate SYN-ACK (seq {seq}) after ESTABLISHED: not acceptable, so re-send ACK.',
+  'app.send.queued': '{device} {app} writes {bytes} B "{text}"; TCP buffers it until the connection is ESTABLISHED.',
+  'encap.transport.tcp': 'TCP header [{flags}] seq {seq} ack {ack} → segment of {bytes} B; consumes {consumes} sequence number(s).',
+  'session.udp': 'UDP has no connection, handshake or ACKs: {flow} just sends datagrams.',
+  'app.send': '{device} {app} hands {bytes} B to {proto} (port {srcPort} → {dstPort}).',
+  'app.respond': '{device} {app} sends its configured reply: {bytes} B (port {srcPort} → {dstPort}, addresses swapped).',
+  'app.processed': '{device} {app} reads and processes the data.',
+  'app.processed.reply': '{device} {app} processes the request ({delayMs} ms SIMULATED) and prepares its reply.',
+  'app.processed.noreply': '{device} {app} processes the request ({delayMs} ms SIMULATED); reply is disabled.',
+  'verify.link': 'Link check: destination MAC {dstMac} is this interface; FCS ok.',
+  'verify.internet': 'IPv4 check: version 4, header checksum {checksum}, destination {dst}.',
+  'verify.transport.udp': 'UDP check: length {length} matches; checksum {checksum} verified over pseudo-header + datagram.',
+  'verify.transport.udp-none': 'UDP check: length {length} matches; checksum 0 = not supplied (allowed over IPv4), so it is skipped.',
+  'verify.transport.tcp': 'TCP check: checksum {checksum} verified over pseudo-header + segment.',
+  'socket.select': 'Port {port} is bound to {app}: transport accepted.',
+  'socket.none.udp': 'No application on UDP port {port} at {device} (bound: {bound}); datagram discarded. A real host would send ICMP Port Unreachable — NOT BUILT.',
+  'socket.none.tcp': 'No listener on TCP port {port} at {device} (bound: {bound}); segment discarded. A real host would answer RST — NOT BUILT.',
+  'drop.verify': '{device} drops the packet: {reason}.',
+  'encap.transport': '{proto} header added → {unit} of {bytes} B.',
+  'encap.internet': 'IPv4 header added → packet of {bytes} B (TTL {ttl}).',
+  'encap.link': 'Ethernet II framing → frame of {bytes} B to {dstMac}.',
+  'transmit': '{device}.{iface} sends {frameBytes} B frame ({onLinkBytes} B link occupancy) on {link}: serialization {serMs} ms + propagation {propMs} ms.',
+  'arrive': 'Frame arrives at {device}.{iface}.',
+  'decap.link': 'Ethernet header, {padding} B padding and FCS removed → {bytes} B IPv4 packet.',
+  'decap.internet': 'IPv4 header removed (dst {dst} is this host) → {bytes} B {unit}.',
+  'decap.transport': '{proto} header removed → {bytes} B for {app} on port {port}.',
+  'forward': '{device} forwards: TTL {ttlFrom} → {ttlTo}, header checksum recomputed, out {iface}.',
+  'drop': 'Frame lost on {link} (SIMULATED fault).',
+  'deliver': '{bytes} B "{text}" delivered to {device} {app} ({total} B so far).',
+  'discard.duplicate': 'Duplicate segment (seq {seq} already received) discarded; re-acknowledged.',
+  'ack.new': 'ACK {ack} received: acknowledges {n} sequence number(s) ({what}).',
+  'ack.duplicate': 'ACK {ack} received again; nothing new to acknowledge.',
+  'timer.set': 'Retransmission timer armed: {rtoMs} ms (generation {gen}).',
+  'timer.cancel': 'Retransmission timer cancelled (generation {gen}).',
+  'timer.fire': 'Retransmission timer expired (attempt {attempt} of {max}).',
+  'retransmit': 'Retransmitting the original {frameBytes} B {kind} frame.',
+  'give-up': 'No ACK after {max} retransmissions; {device} gives up.',
+  'end.complete': 'Run complete at {atMs} ms (SIMULATED).',
+  'end.event-cap': 'Stopped at the {cap}-event cap.',
+  'end.max-duration': 'Stopped at the {maxMs} ms maximum virtual duration.',
+};
+
+export function explain(e: Pick<SimulationEvent, 'explainKey' | 'explainArgs'>): string {
+  const t = T[e.explainKey] ?? e.explainKey;
+  return t.replace(/\{(\w+)\}/g, (_, k: string) => String(e.explainArgs[k] ?? `{${k}}`));
+}
+
+export const EXPLAIN_KEYS = Object.keys(T);
