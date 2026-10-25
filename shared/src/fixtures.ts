@@ -1,12 +1,13 @@
 import { prng } from './prng.ts';
 import type { ScenarioConfig } from './schemas.ts';
 
-// Seeded demo topology (RFC 1918 addresses, locally administered MACs).
+// Demo addresses: RFC 5737 documentation blocks (192.0.2.0/24 TEST-NET-1, 198.51.100.0/24 TEST-NET-2,
+// 203.0.113.0/24 TEST-NET-3) and locally administered unicast MACs (02:…).
 export const HOSTS = {
-  a: { name: 'Host A', ip: '192.168.1.10', mac: '02:00:5e:a1:00:0a' },
-  b: { name: 'Host B', ip: '192.168.1.20', mac: '02:00:5e:a1:00:14' },
-  gateway: { name: 'Gateway', ip: '192.168.1.1', mac: '02:00:5e:a1:00:01' },
-  remote: { name: 'Server', ip: '10.0.0.20', mac: '02:00:5e:b2:00:14' },
+  a: { name: 'Sender', ip: '192.0.2.10', mac: '02:00:00:00:0a:10' },
+  b: { name: 'Receiver', ip: '192.0.2.20', mac: '02:00:00:00:0a:20' },
+  gateway: { name: 'R1', ip: '192.0.2.1', mac: '02:00:00:00:01:00' },
+  remote: { name: 'Receiver', ip: '203.0.113.20', mac: '02:00:00:00:0c:20' },
 } as const;
 
 export type DemoScope = 'link' | 'routed';

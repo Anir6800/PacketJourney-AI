@@ -125,5 +125,20 @@ Matches the TCP fixture (5 B, client's final ACK 5006); applies to UDP too.
 ## D-037 · ACK of SYN keeps queued data
 `processAck` only clears the send buffer when data (not the SYN) is acknowledged — caught while implementing: clearing it on the SYN-ACK would have dropped "Hello" before sending.
 
+## D-038 · Real route lookup replaces the fixed path (phase 06)
+`lookup()` (longest prefix) + `arpCaches()` decide every hop; `template.path` is only drawing order. Supersedes D-030's "routing NOT BUILT". Routed addresses remain a fixed fixture (no topology editor); ports and TTL are editable.
+
+## D-039 · RFC 5737 addresses everywhere
+Same-LAN default moved from 192.168.1.x to 192.0.2.x so all demo addresses are documentation blocks.
+
+## D-040 · Dedicated `drop:ttl` and `route:lookup` tags
+Cue building (later) can find TTL expiry and routing decisions without parsing text.
+
+## D-041 · zod removed from the web bundle
+At 148.23 kB gzip after this phase, the web health check now does a structural check (server keeps zod validation) and payload constants moved to `bytes.ts` → 129.51 kB. Supersedes the "zod stays" note in D-031.
+
+## D-042 · Default scope Hop ↔ hop
+The phase's new teaching content is per-hop addressing; the selector is local to the journey view.
+
 ## D-008 · Postprocessing / drei installed, not yet imported
 Installed and version-checked for later phases; not imported in phase 00 so they do not inflate the 3D chunk.

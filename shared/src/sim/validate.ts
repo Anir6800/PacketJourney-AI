@@ -54,6 +54,7 @@ export function validateSimConfig(c: SimConfig): ConfigIssue[] {
     }
   }
   add('requestDstPort', portIssue(c.requestDstPort));
+  if (!Number.isInteger(c.ttl) || c.ttl < 1 || c.ttl > 255) add('ttl', 'TTL is an 8-bit field: 1–255 (0 would be discarded before sending).');
   for (const k of ['isnClient', 'isnServer'] as const) {
     const v = c.tcp[k];
     if (!Number.isInteger(v) || v < 0 || v > 0xffffffff) add(`tcp.${k}`, 'ISN must be an unsigned 32-bit integer (0–4294967295); sequence arithmetic wraps modulo 2^32.');

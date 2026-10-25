@@ -2,6 +2,27 @@
 
 What the engine simulates, how faithfully, and what it simplifies. Phase 02 built the encoders (`shared/src/`); state machines, routing, ARP and faults are still **NOT BUILT**.
 
+## Routed delivery and scopes (phase 06)
+
+**Routed fixture (fixed, no editor; RFC 5737 documentation addresses, locally administered MACs):**
+
+| Device | Interface | IPv4 | MAC | Routes |
+|---|---|---|---|---|
+| Sender A | eth0 | 192.0.2.10/24 | 02:00:00:00:0a:10 | 192.0.2.0/24 direct; default via 192.0.2.1 |
+| R1 | eth0 | 192.0.2.1/24 | 02:00:00:00:01:00 | 192.0.2.0/24 direct eth0; 198.51.100.0/30 direct eth1; 203.0.113.0/24 via 198.51.100.2 |
+| R1 | eth1 | 198.51.100.1/30 | 02:00:00:00:01:01 | |
+| R2 | eth0 | 198.51.100.2/30 | 02:00:00:00:02:00 | 198.51.100.0/30 direct eth0; 203.0.113.0/24 direct eth1; 192.0.2.0/24 via 198.51.100.1 |
+| R2 | eth1 | 203.0.113.1/24 | 02:00:00:00:02:01 | |
+| Receiver B | eth0 | 203.0.113.20/24 | 02:00:00:00:0c:20 | 203.0.113.0/24 direct; default via 203.0.113.1 |
+
+Links: L1 A–R1 100 Mb/s 500 ns; L2 R1–R2 10 Mb/s 2 ms; L3 R2–B 100 Mb/s 500 ns (SIMULATED). Same-LAN alternative: A 192.0.2.10 ↔ B 192.0.2.20 on one link. Routers have no default route.
+
+**Forwarding:** every send (host or router) does a longest-prefix lookup (`route:lookup` event: matched route, next hop, egress, next-hop MAC). Next-hop MACs come from **prepopulated ARP caches** (each interface knows its link neighbour); the ARP exchange is NOT BUILT and the UI says so. At each router: `verify:link` (FCS, dst MAC) → `decap:link` → `verify:internet` (header checksum) → TTL check (TTL ≤ 1 → `drop:ttl`, local drop; ICMP Time Exceeded NOT BUILT) → `route:lookup` → `hop:Rn:forward` (TTL − 1, header checksum recomputed) → new Ethernet header (egress MAC → next-hop MAC) + FCS → transmit. No NAT: endpoint IPs and ports never change. The transport segment is byte-identical on every hop and its checksum stays valid because the pseudo-header (RFC 768 / RFC 9293 §3.1) contains addresses, protocol and length but not TTL. The receiving host verifies but does not decrement TTL. Replies use the reverse routes. A missing route would drop locally (ICMP Destination Unreachable NOT BUILT).
+
+**TCP is end-to-end:** only A and B hold TCP state; routers forward segments and never handshake (tested: tcp transitions occur only on A and B).
+
+**Scope overlays (2D journey):** Process ↔ process (ports/apps, arc between endpoints, routers dimmed), Host ↔ host (src/dst IP and TTL read from the current frame), Hop ↔ hop (current link, both interface IP/MAC, current frame's MACs and FCS, ARP note, device route table with the matched route highlighted).
+
 ## TCP connect and data (phase 05)
 
 Scoped state machine (`shared/src/sim/tcp.ts`, RFC 9293 §3.3.2): CLOSED, LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED and the five transitions between them. Every `tcp:state:*` event is checked against that table; the UI diagram renders the same table. Close states are NOT BUILT.
@@ -98,7 +119,8 @@ Modelled (configured): ACK, PSH, RST, SYN, FIN. Displayed-only, always 0, labell
 | ARP | RFC 826 *An Ethernet Address Resolution Protocol* |
 | Ethernet framing | IEEE 802.3 (Ethernet II / DIX type field) |
 | UTF-8 | RFC 3629 |
-| Private addressing | RFC 1918 (all simulated addresses use private ranges) |
+| Documentation addressing | RFC 5737 (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) — used for all fixtures since phase 06 |
+| Checksum incremental update (TTL) | RFC 1624 (observed: TTL −1 raises the header checksum by 0x0100) |
 | ECN / DSCP | RFC 3168, RFC 2474 |
 | Ephemeral ports | RFC 6335 (49152–65535) |
 | RTO backoff | RFC 6298 §5.5 (doubling); RTO value itself is fixed, not §2 estimation |

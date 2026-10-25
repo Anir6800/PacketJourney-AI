@@ -15,7 +15,7 @@ import {
   type SimulationEvent,
 } from './state.ts';
 import { TCP_FLAG, checkTransition, flagNames, seqAdd, type TcpState } from './tcp.ts';
-import { iface, instantiate, linkBetween, templateEndpoints, type Endpoints, type Template, type TemplateId } from './topology.ts';
+import { arpCaches, iface, instantiate, linkAt, lookup, templateEndpoints, type Endpoints, type Template, type TemplateId } from './topology.ts';
 import { validateSimConfig } from './validate.ts';
 
 // Discrete-event simulation. Pure: no React, GSAP, Three.js, timers or wall clock. Time is integer ns.
@@ -108,6 +108,7 @@ export function simulate(input: SimConfig): SimRun {
   const issues = validateSimConfig(cfg);
   if (issues.length) throw new Error(issues.map((i) => `${i.field}: ${i.message}`).join(' '));
   const t = instantiate(cfg.template, cfg.endpoints);
+  const arp = arpCaches(t); // prepopulated; ARP exchange NOT BUILT
   const isTcp = cfg.protocol === 'TCP';
   const r = prng(cfg.seed);
   const cPort = cfg.endpoints.client.port;
@@ -137,7 +138,7 @@ export function simulate(input: SimConfig): SimRun {
   const lossLeft = new Map<PacketKind, number>();
   for (const f of cfg.faults) if (f.kind === 'loss') lossLeft.set(f.packet, (lossLeft.get(f.packet) ?? 0) + f.count);
   const linkFree = new Map<string, number>();
-  const lastSent = new Map<string, { pid: string; path: string[] }>();
+  const lastSent = new Map<string, { pid: string; outIface: string }>();
 
   const ep = (d: string) => {
     const e = state.endpoints[d];
@@ -245,13 +246,14 @@ export function simulate(input: SimConfig): SimRun {
     const { kind, from, payload, flags, consumes } = s;
     const toClient = from === t.server;
     const to = toClient ? t.client : t.server;
-    const path = toClient ? [...t.path].reverse() : t.path;
-    const [p0 = from, p1 = to] = path;
-    const first = linkBetween(t, p0, p1);
-    const srcIf = iface(t, first.out);
-    const nextIf = iface(t, first.in);
     const dstIf = t.devices[to]?.ifaces[0];
     if (!dstIf) throw new Error(`no iface on ${to}`);
+    // Host routing: longest-prefix match picks egress + next hop; the ARP cache gives the next hop's MAC.
+    const rc = lookup(t, from, dstIf.ip);
+    if (!rc) throw new Error(`${from} has no route to ${dstIf.ip}`);
+    const srcIf = iface(t, { device: from, iface: rc.iface });
+    const nextMac = arp[from]?.[rc.nextHop];
+    if (!nextMac) throw new Error(`${from} has no ARP entry for ${rc.nextHop}`);
     const me = ep(from);
     const pid = `p${++pktCounter}`;
     const srcPort = toClient ? sPort : cPort;
@@ -264,7 +266,7 @@ export function simulate(input: SimConfig): SimRun {
       transport: isTcp ? { protocol: 'TCP', window: 64240, flags, seq, ack } : { protocol: 'UDP', checksum: cfg.udpChecksum },
       src: { name: from, ip: srcIf.ip, mac: srcIf.mac, port: srcPort },
       dst: { name: to, ip: dstIf.ip, mac: dstIf.mac, port: dstPort },
-      nextHopMac: nextIf.mac,
+      nextHopMac: nextMac,
       ttl: cfg.ttl,
       ipId: u16(r),
       dscp: 0,
@@ -295,10 +297,11 @@ export function simulate(input: SimConfig): SimRun {
       device: from, direction: 'local', layer: 'internet', type: 'encap', tag: 'encap:internet', packetId: pid, causeId: cause,
       explainKey: 'encap.internet', explainArgs: { bytes: e.packet.length, ttl: cfg.ttl, ...fieldArgs(e.fields, 'ipv4') }, bytes: [...e.packet],
     });
+    cause = routeEvent(from, pid, dstIf.ip, rc, nextMac, cause);
     cause = emit({
-      device: from, direction: 'local', layer: 'link', type: 'encap', tag: 'encap:link', packetId: pid, causeId: cause, iface: first.out.iface,
+      device: from, direction: 'local', layer: 'link', type: 'encap', tag: 'encap:link', packetId: pid, causeId: cause, iface: rc.iface,
       explainKey: 'encap.link',
-      explainArgs: { bytes: e.frame.length, dstMac: nextIf.mac, ...fieldArgs(e.fields, 'ethernet'), ...fieldArgs(e.fields, 'padding'), ...fieldArgs(e.fields, 'fcs') },
+      explainArgs: { bytes: e.frame.length, dstMac: nextMac, ...fieldArgs(e.fields, 'ethernet'), ...fieldArgs(e.fields, 'padding'), ...fieldArgs(e.fields, 'fcs') },
       bytes: [...e.frame],
       effects:
         kind === 'data' && !state.units.link
@@ -306,23 +309,30 @@ export function simulate(input: SimConfig): SimRun {
           : [],
     });
     if (isTcp && consumes > 0) {
-      lastSent.set(from, { pid, path });
+      lastSent.set(from, { pid, outIface: rc.iface });
       armTimer(from, 0, cause, pid);
     }
     const frame = e.frame;
     const c = cause;
-    schedule(now + (t.devices[from]?.processingNs ?? 0), () => transmit(pid, frame, path, 0, c));
+    schedule(now + (t.devices[from]?.processingNs ?? 0), () => transmit(pid, frame, from, rc.iface, c));
     return cause;
   }
 
-  function transmit(pid: string, frame: Uint8Array, path: string[], i: number, causeId: string | null) {
-    const from = path[i] ?? '';
-    const to = path[i + 1] ?? '';
-    const { link, out, in: inn } = linkBetween(t, from, to);
+  function routeEvent(dev: string, pid: string, dst: string, rc: NonNullable<ReturnType<typeof lookup>>, mac: string, causeId: string | null) {
+    return emit({
+      device: dev, iface: rc.iface, direction: 'local', layer: 'internet', type: 'route', tag: 'route:lookup', packetId: pid, causeId,
+      explainKey: 'route.lookup',
+      explainArgs: { device: dev, dst, route: rc.text, nextHop: rc.nextHop, iface: rc.iface, mac, arp: 'prepopulated ARP cache (ARP exchange NOT BUILT)' },
+    });
+  }
+
+  function transmit(pid: string, frame: Uint8Array, from: string, outIface: string, causeId: string | null) {
+    const { link, out, in: inn } = linkAt(t, from, outIface);
+    const to = inn.device;
     const key = `${link.id}:${from}`;
     const freeAt = linkFree.get(key) ?? 0;
     if (freeAt > now) {
-      schedule(freeAt, () => transmit(pid, frame, path, i, causeId)); // link busy: queue (FIFO by seq)
+      schedule(freeAt, () => transmit(pid, frame, from, outIface, causeId)); // link busy: queue (FIFO by seq)
       return;
     }
     const onLinkBytes = PREAMBLE_SFD + frame.length + IFG;
@@ -351,7 +361,8 @@ export function simulate(input: SimConfig): SimRun {
     if (!id) return;
     const kind = pkt(pid).kind;
     const left = lossLeft.get(kind) ?? 0;
-    if (i === 0 && left > 0) {
+    // Loss faults apply to the sender's own link (first hop) only.
+    if (t.devices[from]?.kind === 'host' && left > 0) {
       lossLeft.set(kind, left - 1);
       schedule(arrivalNs, () =>
         emit({
@@ -363,7 +374,7 @@ export function simulate(input: SimConfig): SimRun {
       );
       return;
     }
-    schedule(arrivalNs, () => arrive(pid, frame, path, i + 1, id, inn.iface));
+    schedule(arrivalNs, () => arrive(pid, frame, to, inn.iface, id));
   }
 
   const clearHop = (pid: string) => (state.activeHop?.packetId === pid ? [{ k: 'hop' as const, hop: null }] : []);
@@ -377,8 +388,7 @@ export function simulate(input: SimConfig): SimRun {
     });
   }
 
-  function arrive(pid: string, frame: Uint8Array, path: string[], i: number, causeId: string, ifName: string) {
-    const dev = path[i] ?? '';
+  function arrive(pid: string, frame: Uint8Array, dev: string, ifName: string, causeId: string) {
     const d = t.devices[dev];
     const myIf = d?.ifaces.find((x) => x.name === ifName);
     if (!d || !myIf) return;
@@ -416,7 +426,7 @@ export function simulate(input: SimConfig): SimRun {
     });
     if (d.kind === 'router') {
       const c = cause;
-      schedule(now + d.processingNs, () => forward(pid, packet, path, i, c));
+      schedule(now + d.processingNs, () => forward(pid, packet, dev, c));
       return;
     }
 
@@ -478,25 +488,42 @@ export function simulate(input: SimConfig): SimRun {
     schedule(now + d.processingNs, () => (isTcp ? receiveTcp(pid, dev, seg, payload, app, c) : receiveUdp(pid, dev, payload, app, c)));
   }
 
-  function forward(pid: string, packet: Uint8Array, path: string[], i: number, causeId: string | null) {
-    const dev = path[i] ?? '';
+  /** Router forwarding (RFC 1812 §5.3.1): TTL check/decrement, header checksum, route lookup, new frame. No NAT. */
+  function forward(pid: string, packet: Uint8Array, dev: string, causeId: string | null) {
+    const ttl = packet[8] ?? 0;
     const fwd = forwardPacket(packet);
-    if (!fwd) return reject(dev, pid, causeId, 'internet', 'TTL expired (ICMP Time Exceeded NOT BUILT)');
-    const { out, in: inn } = linkBetween(t, dev, path[i + 1] ?? '');
-    const outIf = iface(t, out);
-    const nextIf = iface(t, inn);
-    let cause = emit({
-      device: dev, iface: out.iface, direction: 'local', layer: 'internet', type: 'forward', tag: `hop:${dev}:forward`, packetId: pid, causeId,
-      bytes: [...fwd], explainKey: 'forward', explainArgs: { device: dev, ttlFrom: packet[8] ?? 0, ttlTo: fwd[8] ?? 0, iface: out.iface },
-      transition: { machine: 'packet', from: `TTL ${packet[8]}`, to: `TTL ${fwd[8]}` },
-    });
-    const { frame } = ethernetFrame(fwd, nextIf.mac, outIf.mac);
+    if (!fwd) {
+      emit({
+        device: dev, direction: 'local', layer: 'internet', type: 'drop', tag: 'drop:ttl', packetId: pid, causeId,
+        explainKey: 'drop.ttl', explainArgs: { device: dev, ttl },
+        transition: { machine: 'packet', from: 'router', to: 'dropped' },
+        effects: rejectEffects(pid),
+      });
+      return;
+    }
+    const dst = ipOf(packet, 16);
+    const rc = lookup(t, dev, dst);
+    const mac = rc ? arp[dev]?.[rc.nextHop] : undefined;
+    if (!rc || !mac) return reject(dev, pid, causeId, 'internet', `no route to ${dst} (ICMP Destination Unreachable NOT BUILT)`);
+    let cause = routeEvent(dev, pid, dst, rc, mac, causeId);
+    const outIf = iface(t, { device: dev, iface: rc.iface });
     cause = emit({
-      device: dev, iface: out.iface, direction: 'local', layer: 'link', type: 'encap', tag: 'encap:link', packetId: pid, causeId: cause,
-      bytes: [...frame], explainKey: 'encap.link', explainArgs: { bytes: frame.length, dstMac: nextIf.mac, 'Source MAC': outIf.mac },
+      device: dev, iface: rc.iface, direction: 'local', layer: 'internet', type: 'forward', tag: `hop:${dev}:forward`, packetId: pid, causeId: cause,
+      bytes: [...fwd], explainKey: 'forward',
+      explainArgs: {
+        device: dev, ttlFrom: ttl, ttlTo: fwd[8] ?? 0, iface: rc.iface,
+        csFrom: `0x${u16At(packet, 10).toString(16).toUpperCase().padStart(4, '0')}`,
+        csTo: `0x${u16At(fwd, 10).toString(16).toUpperCase().padStart(4, '0')}`,
+      },
+      transition: { machine: 'packet', from: `TTL ${ttl}`, to: `TTL ${fwd[8]}` },
+    });
+    const { frame } = ethernetFrame(fwd, mac, outIf.mac);
+    cause = emit({
+      device: dev, iface: rc.iface, direction: 'local', layer: 'link', type: 'encap', tag: 'encap:link', packetId: pid, causeId: cause,
+      bytes: [...frame], explainKey: 'encap.link', explainArgs: { bytes: frame.length, dstMac: mac, 'Source MAC': outIf.mac },
       effects: [{ k: 'packet-patch', id: pid, patch: { current: [...frame] } }],
     });
-    transmit(pid, frame, path, i, cause);
+    transmit(pid, frame, dev, rc.iface, cause);
   }
 
   // ---------- receiving ----------
@@ -722,7 +749,7 @@ export function simulate(input: SimConfig): SimRun {
       ],
     });
     armTimer(dev, tm.retries + 1, id, rid);
-    schedule(now + (t.devices[dev]?.processingNs ?? 0), () => transmit(rid, frame, last.path, 0, id));
+    schedule(now + (t.devices[dev]?.processingNs ?? 0), () => transmit(rid, frame, dev, last.outIface, id));
   }
 
   // ---------- run ----------

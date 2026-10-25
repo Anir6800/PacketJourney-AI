@@ -1,19 +1,19 @@
 # Status
 
-## Phase 05 · TCP connect and data — COMPLETE (2026-10-26)
+## Phase 06 · Routed delivery and scopes — COMPLETE (2026-10-26)
 
 ### Completed
-- `shared/src/sim/tcp.ts`: scoped RFC 9293 state table (CLOSED, LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED), transition check, flag decoding, mod-2^32 sequence add.
-- Engine: server passive open, client active open with SYN; SYN-ACK; handshake ACK; app data queued until ESTABLISHED; byte-based SEQ/ACK with configurable teaching ISNs (1000/5000); SYN consumes 1, data its UTF-8 bytes, pure ACK 0; immediate ACK (no delayed ACK/Nagle); 1 ms app delay separates transport ACK from app processing; one data segment per direction; RTO for SYN/SYN-ACK/data; lost handshake ACK and duplicate SYN-ACK handled; ISS/IRS stored per endpoint.
-- UI: TCP ISN inputs with validation and teaching note; `TcpCards` (both endpoints' state, ISS/IRS, SND.UNA/SND.NXT/RCV.NXT, send buffer, four-tuple, state pills, transition list with the current one highlighted) inside the 2D journey; SYN/SYN-ACK/ACK packet markers; log shows `TCP header [flags] seq … ack …`.
+- Topology: fixed Sender → R1 → R2 → Receiver fixture and Same-LAN alternative, RFC 5737 addresses, per-interface MACs, /30 transit link, explicit forward and reverse route tables, longest-prefix `lookup`, prepopulated `arpCaches`.
+- Engine: hop-by-hop forwarding from route tables (no fixed path); `route:lookup` events; routers verify frame, decapsulate, check IPv4, drop on TTL ≤ 1 (`drop:ttl`, no ICMP), decrement TTL, recompute header checksum, build new frame/FCS; hosts never decrement TTL; replies use reverse routes; no NAT; TTL configurable (1–255).
+- UI: Initial TTL input; 4-node SVG journey; scope selector (Process / Host / Hop) with arc, dimming, link highlight and a scope panel reading IPs/TTL/MACs/FCS from the current frame, ARP assumption, per-device route table with matched route; Delivery scopes tab points to the overlays.
+- Bundle: zod removed from web (129.51 kB gzip initial).
 
 ### Commands and results
-`npm run verify`: typecheck 0, lint 0, vitest 153/153, build ok (146.11 kB gzip initial), secrets clean, Playwright 19/19. Details: `TEST_EVIDENCE.md`.
+`npm run verify`: typecheck 0, lint 0, vitest 168/168, build ok (129.51 kB gzip initial), secrets clean, Playwright 20/20. Details: `TEST_EVIDENCE.md`.
 
 ### Open issues
 - Not a Git repository → no checkpoint.
-- TCP close (FIN, FIN-WAIT, CLOSE-WAIT, LAST-ACK, TIME-WAIT), RST, ICMP, ARP, routing lookup, fault UI, cue builder, GSAP master timeline, playback clock, 3D journey: NOT BUILT.
-- Initial JS 146.11 kB gzip vs 150 kB target — ~4 kB headroom.
+- ARP exchange, ICMP (Time Exceeded, Port/Destination Unreachable), TCP close/RST, fault UI, cue builder, GSAP master timeline, playback clock, 3D journey: NOT BUILT.
 - WebGL context-loss and hidden-tab drift still untested.
 
-## Next phase: **06**
+## Next phase: **07**

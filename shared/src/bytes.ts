@@ -1,4 +1,6 @@
-import { PAYLOAD_MAX, PAYLOAD_MIN } from './schemas.ts';
+// Kept out of schemas.ts so importing them doesn't pull zod into the web bundle.
+export const PAYLOAD_MIN = 1;
+export const PAYLOAD_MAX = 256;
 
 const enc = new TextEncoder();
 

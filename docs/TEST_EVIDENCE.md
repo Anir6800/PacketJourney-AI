@@ -1,5 +1,24 @@
 # Test Evidence
 
+## Phase 06 — 2026-10-26
+
+Command: `npm run verify` → typecheck 0, lint 0, vitest **168 passed** (7 files; new `routed.test.ts` 15), build ok (initial **129.51 kB gzip** after D-041; 148.23 kB before), secrets clean, Playwright **20 passed**.
+
+`routed.test.ts`: every via-gateway lies in its egress interface's subnet; every device reaches both endpoints and has an ARP entry for the next hop; R1→203.0.113.20 via 198.51.100.2, R2→192.0.2.10 via 198.51.100.1, A/B via their gateways, /30 transit match, no default on routers; UDP request transmitted by A (100 Mb/s), R1 (10 Mb/s), R2 (100 Mb/s); forwards R1 64→63, R2 63→62; frame TTL bytes 64/63/62; per-hop src→dst MACs A→R1.eth0, R1.eth1→R2.eth0, R2.eth1→B; each FCS valid and distinct, IPs 192.0.2.10→203.0.113.20 and ports 50000→7007 identical, IPv4 checksum distinct per hop, transport segment byte-identical and checksum valid; B verifies TTL 62 and never forwards; route:lookup next hops and MACs per device, ARP note contains NOT BUILT; reply transmitted by B, R2, R1 with swapped IPs, "World" delivered; routed TCP: tcp transitions only on A and B, final SND/RCV 1006/5006/5006/1006, 21 transmissions (7 × 3); TTL 1 → `drop:ttl` at R1, no R1 egress, no delivery, no ICMP tag, 1 transmission; TTL 2 → drop at R2; TTL 3 → B sees TTL 1 and delivers; same-LAN TTL 1 delivers with 1 transmission; TTL 0/256 rejected; duplicate-IP / other-subnet / duplicate-MAC each give their own message.
+
+E2E `Routed…`: tags include A/R1/R2 egress, both forwards, B ingress; two deliveries; at hop:R1:egress (hop scope) src MAC 02:00:00:00:01:01 → dst 02:00:00:00:02:00, L2 highlighted, ARP note shown; host scope 192.0.2.10 → 203.0.113.20, TTL 63, arc visible; R2's route table highlights `203.0.113.0/24 directly connected dev eth1`; routed TCP process scope mentions end-to-end; TTL 1 → drop:ttl, no R1 egress/delivery, caption "R1 drops the packet: TTL 1 … ICMP Time Exceeded is NOT BUILT"; TTL 0 inline error.
+
+### Screenshot observations
+- `routed-hop-1440.png`: expanded `hop:R1:forward` log row "TTL 64 → 63, IPv4 header checksum 0xA2CB → 0xA3CB … transport checksum are unchanged (the pseudo-header has no TTL); no NAT" (+0x0100 per RFC 1624); `hop:R1:egress` details e14 R1.eth1 64 B / 84 B on L2; inspector active hop "p1 R1→R2 on L2: send 77.22–144.42 µs, arrives 2.144 ms".
+- `routed-process-1440.png` (after fix): four nodes A·host 192.0.2.10, R1/R2 "2 interfaces" dimmed, B·host 203.0.113.20; dashed violet arc A→B; link labels "L1 · 100 Mb/s", "L2 · 10 Mb/s", "L3 · 100 Mb/s" under the node row; process panel text with ports and "end-to-end"; TCP cards both ESTABLISHED, four-tuple 192.0.2.10:50000 ↔ 203.0.113.20:7007.
+
+### Repair log (phase 06)
+1. Validation tests still used 192.168.1.x defaults; the duplicate-IP case was passing because of the different-subnet rule → switched to RFC 5737 values and added rule-specific message assertions.
+2. Persistent-loss bound: replaced the event-count threshold with the structural property (run ends `end:complete`, below `maxEvents`, exactly 3 retransmissions).
+3. SVG link labels collided with router nodes in the 4-node layout → labels moved below the node row.
+4. A screenshot appeared to show the wrong scope button pressed; a DOM probe showed `aria-pressed` correct and the old button mid 160 ms background transition → test now waits for the transition before capturing (no product change).
+5. Bundle 148.23 kB (≈1.8 kB headroom) → zod removed from the web bundle (D-041) → 129.51 kB.
+
 ## Phase 05 — 2026-10-26
 
 Command: `npm run verify` → typecheck 0, lint 0, vitest **153 passed** (6 files; new `tcp.test.ts` 14), build ok (initial **146.11 kB gzip**), secrets clean, Playwright **19 passed**.

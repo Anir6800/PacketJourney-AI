@@ -104,7 +104,20 @@ export function ConfigForm({ draft, setDraft, issues, dirty, onRun, onReset, run
         <Input id="server-mac" label="MAC address" value={draft.endpoints.server.mac} disabled={routed} onChange={(v) => setEp('server', 'mac', v)} error={err('server.mac')} />
         <Input id="server-port" label="Echo app listens on port" numeric value={portText(draft.endpoints.server.port)} onChange={(v) => setEp('server', 'port', toPort(v))} error={err('server.port')} />
       </fieldset>
-      {routed && <p className="small muted">Routed template: addresses are fixed because routing lookup is NOT BUILT; ports stay editable.</p>}
+      {routed && (
+        <p className="small muted">
+          Routed template (Sender → R1 → R2 → Receiver): addresses, route tables and ARP caches are a fixed fixture (RFC 5737 blocks); ports and TTL stay editable.
+        </p>
+      )}
+      <Input
+        id="ttl"
+        label="Initial TTL"
+        numeric
+        value={Number.isNaN(draft.ttl) ? '' : String(draft.ttl)}
+        onChange={(v) => setDraft((d) => ({ ...d, ttl: toPort(v) }))}
+        error={err('ttl')}
+        hint="Each router decrements TTL and drops the packet instead of sending it with TTL 0. The receiving host does not decrement."
+      />
 
       <Input
         id="dst-port"

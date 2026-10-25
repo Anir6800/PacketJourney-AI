@@ -117,6 +117,12 @@ Status: `planned` / `implemented` / `verified` / `blocked`.
 | T5.5 | State cards (both endpoints, four-tuple) and diagram agree with headers and log | e2e `TCP: handshake…` | verified |
 | T5.6 | Switching protocol clears TCP state | `tcp.test.ts`; e2e | verified |
 | T5.7 | TCP close (FIN, TIME-WAIT) | — | planned |
+| R6.1 | Routed fixture: 3 link traversals, 2 TTL decrements | `routed.test.ts`; e2e `Routed…` | verified |
+| R6.2 | Per hop new MACs/FCS; endpoint IPs/ports unchanged; IP checksum changes; transport checksum valid and unchanged | `routed.test.ts` | verified |
+| R6.3 | Valid route tables incl. reverse routes; reply follows reverse route | `routed.test.ts` | verified |
+| R6.4 | TTL 1 expires at R1, no delivery, no ICMP | `routed.test.ts`; e2e | verified |
+| R6.5 | Scope overlays process/host/hop; ARP assumption shown; TCP end-to-end explained | e2e `Routed…` | verified |
+| R6.6 | ARP exchange, ICMP generation | — | planned (NOT BUILT) |
 | C1 | TCP/UDP choice | engine + UI tests | planned |
 | C2 | UTF-8/hex/binary | `shared/src/engine.test.ts` UTF-8 suite; e2e `payload validation` | verified |
 | C3 | Headers & checksums (single segment/datagram, no options) | engine tests: RFC 1071 §3, IPv4 0xB861 vector, CRC-32 check values, reference checksum, bit flips, field map; e2e `Headers: selecting a field…` | verified |

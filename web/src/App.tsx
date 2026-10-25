@@ -1,13 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   DEFAULT_SIM,
-  HealthResponse,
   RunController,
   hex,
   representations,
   sameConfig,
   validateSimConfig,
   bin,
+  type HealthResponse,
   type SimConfig,
   type SimState,
   type TemplateId,
@@ -112,7 +112,12 @@ export function App() {
     const ctrl = new AbortController();
     fetch('/api/health', { signal: ctrl.signal })
       .then((r) => r.json())
-      .then((j) => setAi(HealthResponse.parse(j).aiConfigured ? 'online' : 'unconfigured'))
+      .then((j: unknown) => {
+        // ponytail: structural check instead of zod here keeps zod out of the browser bundle; the server validates with HealthResponse.
+        const h = j as Partial<HealthResponse> | null;
+        if (h?.ok !== true || typeof h.aiConfigured !== 'boolean') throw new Error('bad /api/health body');
+        setAi(h.aiConfigured ? 'online' : 'unconfigured');
+      })
       .catch(() => !ctrl.signal.aborted && setAi('offline'));
     return () => ctrl.abort();
   }, []);
@@ -274,7 +279,12 @@ export function App() {
                   }}
                 />
               )}
-              {tab !== 'journey' && tab !== 'headers' && (
+              {tab === 'scopes' && (
+                <StateView kind="empty" title="Delivery scopes are overlays on the journey">
+                  Open the Journey tab and switch Process ↔ process, Host ↔ host or Hop ↔ hop while stepping through events.
+                </StateView>
+              )}
+              {(tab === 'compare' || tab === 'practice') && (
                 <StateView kind="empty" title={`${TABS.find((t) => t.id === tab)?.label}: NOT BUILT`}>
                   Arrives in a later phase.
                 </StateView>

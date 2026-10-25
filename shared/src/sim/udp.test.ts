@@ -134,9 +134,9 @@ describe('validation blocks invalid input', () => {
     ['port 0', ep({ port: 0 }), 'client.port'],
     ['port 65536', ep({}, { port: 65536 }), 'server.port'],
     ['non-integer port', ep({ port: Number.NaN }), 'client.port'],
-    ['duplicate IP', ep({}, { ip: '192.168.1.10' }), 'server.ip'],
-    ['duplicate MAC', ep({}, { mac: '02:00:5e:a1:00:0a' }), 'server.mac'],
-    ['different /24 on same LAN', ep({}, { ip: '192.168.2.20' }), 'server.ip'],
+    ['duplicate IP', ep({}, { ip: '192.0.2.10' }), 'server.ip'],
+    ['duplicate MAC', ep({}, { mac: '02:00:00:00:0a:10' }), 'server.mac'],
+    ['different /24 on same LAN', ep({}, { ip: '192.0.3.20' }), 'server.ip'],
   ])('%s', (_, o, field) => {
     expect(issues(o)).toContain(field);
     expect(() => simulate(udp(o))).toThrow();

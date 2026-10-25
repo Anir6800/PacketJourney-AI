@@ -230,6 +230,16 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .lcard-bytes { margin: 4px 0 0; color: var(--c-text); overflow-wrap: anywhere; }
 .lcard-tail { color: var(--c-muted); }
 
+/* Scope overlays */
+.scope-panel { border: 1px solid var(--c-hairline); border-radius: 8px; padding: 6px 10px; display: grid; gap: 4px; background: rgba(5, 7, 13, 0.5); overflow-wrap: anywhere; }
+.scope-panel[data-scope='process'] { border-left: 3px solid var(--c-app); }
+.scope-panel[data-scope='host'] { border-left: 3px solid var(--c-internet); }
+.scope-panel[data-scope='hop'] { border-left: 3px solid var(--c-link); }
+.routes summary { cursor: pointer; color: var(--c-muted); }
+.routes ul { margin: 4px 0 0; padding-left: 18px; font-size: 0.74rem; }
+.routes li[data-hot] { color: var(--c-link); }
+.routes li[data-hot]::marker { content: '▶ '; }
+
 /* TCP state cards + diagram */
 .tcp { display: grid; gap: 8px; }
 .tcp-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }

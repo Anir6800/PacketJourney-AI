@@ -236,7 +236,7 @@ test('UDP slice: Hello delivered unchanged, transport/app statuses, configured r
 
   // Layer cards show the actual frame bytes on the wire.
   await row(page, 'hop:A:egress').locator('summary').click();
-  await expect(page.getByTestId('lbytes-link')).toHaveText(/^02 00 5E A1 00 14 02 00 5E A1 00 0A 08 00$/);
+  await expect(page.getByTestId('lbytes-link')).toHaveText(/^02 00 00 00 0A 20 02 00 00 00 0A 10 08 00$/);
   await expect(page.getByTestId('lbytes-transport')).toHaveText(/^C3 50 1B 5F 00 0D /);
   await expect(page.getByTestId('packet-marker')).toBeVisible();
 
@@ -282,8 +282,8 @@ test('UDP slice: wrong port reaches no app; reply can be disabled; invalid input
   await expect(page.getByTestId('blocked')).toContainText('fix 3 fields');
   await expect(runBtn(page)).toBeDisabled();
   await page.screenshot({ path: 'test-results/udp-invalid-1440.png', fullPage: true });
-  await ip.fill('192.168.1.20'); // duplicate of server
-  await page.locator('#server-mac').fill('02:00:5e:a1:00:14');
+  await ip.fill('192.0.2.20'); // duplicate of server
+  await page.locator('#server-mac').fill('02:00:00:00:0a:20');
   await page.locator('#client-port').fill('50000');
   await expect(page.locator('#server-ip-err')).toContainText('different IPv4');
   await expect(runBtn(page)).toBeDisabled();
@@ -301,7 +301,7 @@ test('TCP: handshake states, exact seq/ACK in cards, headers and log; switching 
   const t = await tags(page);
   expect(t.slice(0, 3)).toEqual(['tcp:state:LISTEN', 'app:send', 'tcp:connect']);
   expect(t.indexOf('tcp:state:SYN-SENT')).toBeLessThan(t.indexOf('tcp:state:SYN-RECEIVED'));
-  await expect(page.getByTestId('four-tuple')).toHaveText('192.168.1.10:50000 ↔ 192.168.1.20:7007');
+  await expect(page.getByTestId('four-tuple')).toHaveText('192.0.2.10:50000 ↔ 192.0.2.20:7007');
 
   // After SYN-SENT: client SYN-SENT, server still LISTEN.
   await row(page, 'tcp:state:SYN-SENT').locator('summary').click();
@@ -342,6 +342,63 @@ test('TCP: handshake states, exact seq/ACK in cards, headers and log; switching 
   await runBtn(page).click();
   await expect(page.getByTestId('tcp-cards')).toHaveCount(0);
   expect((await tags(page)).some((x) => x.startsWith('tcp:'))).toBe(false);
+});
+
+test('Routed: three hops, per-hop MACs, unchanged IPs, scope overlays, TTL 1 expiry', async ({ page }) => {
+  await skipBoot(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByLabel('Destination', { exact: true }).selectOption('routed');
+  await runBtn(page).click();
+  const t = await tags(page);
+  for (const tag of ['hop:A:egress', 'hop:R1:forward', 'hop:R1:egress', 'hop:R2:forward', 'hop:R2:egress', 'hop:B:ingress']) expect(t).toContain(tag);
+  expect(t.filter((x) => x === 'deliver:app')).toHaveLength(2); // request + reply via the reverse route
+
+  // Hop scope (default): R1 → R2 link, MACs of that link.
+  await row(page, 'hop:R1:egress').locator('summary').click();
+  await expect(page.getByTestId('scope-panel')).toHaveAttribute('data-scope', 'hop');
+  await expect(page.getByTestId('scope-src-mac')).toHaveText('02:00:00:00:01:01');
+  await expect(page.getByTestId('scope-dst-mac')).toHaveText('02:00:00:00:02:00');
+  await expect(page.getByTestId('svg-link-L2')).toHaveAttribute('data-scoped', '');
+  await expect(page.getByTestId('arp-note')).toContainText('prepopulated');
+  await page.screenshot({ path: 'test-results/routed-hop-1440.png' });
+
+  // Host scope: endpoint IPs unchanged, TTL decremented once.
+  await page.getByRole('group', { name: 'Delivery scope' }).getByRole('button', { name: 'Host ↔ host' }).click();
+  await expect(page.getByTestId('scope-src-ip')).toHaveText('192.0.2.10');
+  await expect(page.getByTestId('scope-dst-ip')).toHaveText('203.0.113.20');
+  await expect(page.getByTestId('scope-ttl')).toHaveText('63');
+  await expect(page.getByTestId('scope-arc')).toBeVisible();
+
+  // Route lookup at R2 highlights the matched route.
+  await row(page, 'route:lookup', 2).locator('summary').click();
+  await page.getByRole('group', { name: 'Delivery scope' }).getByRole('button', { name: 'Hop ↔ hop' }).click();
+  await page.getByText('Route table of R2').click();
+  await expect(page.locator('.routes li[data-hot]')).toHaveText('203.0.113.0/24 directly connected dev eth1');
+
+  // TCP over the routed path: end-to-end connection.
+  await page.getByRole('group', { name: 'Protocol' }).getByRole('button', { name: 'TCP' }).click();
+  await runBtn(page).click();
+  await page.getByRole('group', { name: 'Delivery scope' }).getByRole('button', { name: 'Process ↔ process' }).click();
+  await expect(page.getByTestId('scope-panel')).toContainText('end-to-end');
+  await expect(page.getByRole('group', { name: 'Delivery scope' }).getByRole('button', { name: 'Process ↔ process' })).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300); // let the 160 ms button transition settle before capturing evidence
+  await page.screenshot({ path: 'test-results/routed-process-1440.png' });
+
+  // TTL 1: dropped at R1, nothing delivered.
+  await page.getByRole('group', { name: 'Protocol' }).getByRole('button', { name: 'UDP' }).click();
+  await page.getByLabel('Initial TTL').fill('1');
+  await runBtn(page).click();
+  const t1 = await tags(page);
+  expect(t1).toContain('drop:ttl');
+  expect(t1).not.toContain('hop:R1:egress');
+  expect(t1).not.toContain('deliver:app');
+  await row(page, 'drop:ttl').locator('summary').click();
+  await expect(page.getByTestId('journey-caption')).toContainText('R1 drops the packet: TTL 1');
+  await expect(page.getByTestId('journey-caption')).toContainText('ICMP Time Exceeded is NOT BUILT');
+  await page.getByLabel('Initial TTL').fill('0');
+  await expect(page.locator('#ttl-err')).toContainText('1–255');
 });
 
 test('keyboard reaches mode switch, tabs and inspector (1440)', async ({ page }) => {

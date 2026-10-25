@@ -87,7 +87,7 @@ export type Effect =
   | { k: 'end'; reason: EndReason; atMs: number };
 
 export type EventType =
-  | 'session' | 'tcp-state' | 'app-send' | 'encap' | 'transmit' | 'arrive' | 'verify' | 'decap' | 'forward' | 'drop' | 'socket'
+  | 'session' | 'tcp-state' | 'app-send' | 'route' | 'encap' | 'transmit' | 'arrive' | 'verify' | 'decap' | 'forward' | 'drop' | 'socket'
   | 'deliver' | 'app-process' | 'discard' | 'ack' | 'timer-set' | 'timer-cancel' | 'timer-fire' | 'retransmit' | 'give-up' | 'end';
 
 export type Timing = {

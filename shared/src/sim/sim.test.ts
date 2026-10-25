@@ -182,8 +182,9 @@ describe('faults and bounds', () => {
     const t = run.events.map((e) => e.tag);
     expect(t.filter((x) => x === 'tcp:retransmit')).toHaveLength(3);
     expect(t).toContain('timer:giveup');
-    // Bound includes the 3-way handshake (~30 events) added in phase 05.
-    expect(run.events.length).toBeLessThan(120);
+    // Bounded = ends naturally (not by the event cap) after exactly maxRetries retransmissions.
+    expect(run.events.at(-1)?.tag).toBe('end:complete');
+    expect(run.events.length).toBeLessThan(run.config.maxEvents);
     const sets = run.events.filter((e) => e.tag === 'timer:set:rto' && e.packetId?.startsWith('p4')).map((e) => e.explainArgs.rtoMs);
     expect(sets).toEqual([200, 400, 800, 1600]);
     expect(run.timeline.final.endpoints.A?.app).toBe('failed');

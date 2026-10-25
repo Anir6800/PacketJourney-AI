@@ -27,8 +27,6 @@ export const Route = z.discriminatedUnion('kind', [
 ]);
 export type Route = z.infer<typeof Route>;
 
-export const PAYLOAD_MIN = 1;
-export const PAYLOAD_MAX = 256;
 
 export const Payload = z.object({ text: z.string() });
 
