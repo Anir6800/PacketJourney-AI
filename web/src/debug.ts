@@ -9,6 +9,10 @@ export type PjDebug = {
   scene?: () => unknown;
   /** Dev/test builds only: renderer.info memory + last frame draw calls. */
   renderInfo?: () => { geometries: number; textures: number; calls: number };
+  /** Dev/test builds only: playback clock + master timeline state. */
+  motion?: () => Record<string, number | boolean | string | null>;
+  /** Dev/test builds only: seek the playback clock (presentation seconds). */
+  seek?: (pt: number) => void;
   /** Rendered 3D frames (demand rendering: should stay flat while idle). */
   frames?: number;
   /** Dev/test builds only: unique geometries referenced by the scene graph. */

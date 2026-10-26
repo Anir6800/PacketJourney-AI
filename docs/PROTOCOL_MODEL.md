@@ -183,3 +183,6 @@ Modelled states: CLOSED, LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED, FIN-WAIT-1
 - ARP caches are per-scenario and start empty.
 - All timings are **SIMULATED** virtual time.
 - This is **not** a compliant TCP implementation; it models the parts needed to teach the journey.
+
+## Presentation timing (phase 09)
+Playback never changes engine output. Virtual timestamps, metrics and snapshots come from the event list; presentation time (cue slots, teaching holds, speed 0.25–2×) only decides how long each event stays on screen. Within a transmit cue the packet's position is linear in virtual time between the engine's send start and arrival.

@@ -1,5 +1,27 @@
 # Status
 
+## Phase 09 · Cinematic motion system — COMPLETE (2026-10-26)
+
+### Completed
+- `web/src/motion/cues.ts`: pure cue builder (cueId, eventId, startVT/endVT, startPT/endPT, kind, targets, hold flag), `locate`, ladder `packetSpans`.
+- `web/src/motion/clock.ts`: single rAF playback clock (speeds 0.25/0.5/1/2, play/pause/seek/reset, StrictMode-safe).
+- `web/src/motion/motion.ts`: paused GSAP master timeline with a label per event id and an end marker; `useMasterChild` for component sub-timelines.
+- Dock: reset, previous, play/pause, next, speed, scrubber, live timestamp, teaching-hold label, hidden-tab note. Keyboard shortcuts with guards. Single announcer.
+- 3D: shells wrap 1.15 → 1 and release outermost-first, Internet shell TTL flash at routers, packet travels the link with exact send→arrival progress, bit particles flow, ACKs as a smaller capsule with a green ring, Follow-rig eased dolly with holds; all read from refs.
+- `CueOverlay`: header flyer from the inspector edge (measured), deterministic checksum/FCS scramble-decode, validation ticks (FCS, IPv4 checksum, transport checksum, port), drops.
+- `Ladder`: TCP/UDP ladder between endpoints, arrows drawn in sync, ACK arrows distinct, lost packets end at mid-link with ✕.
+
+### Commands and results
+`npm run verify` exit 0: typecheck 0, lint 0, vitest 201/201, build ok (initial 140.87 kB gzip, lazy 3D 282.09 kB gzip), secrets clean, Playwright 35/35. Speed through the real loop: exactly 1.000000 / 2.000000 PT per consumed wall second; 12/12 scrub samples identical. Details: `TEST_EVIDENCE.md`.
+
+### Open issues
+- Payload "typing" and shell header-field Flip into the 3D shell are simplified (decoder line + flyer chip); Story Mode narration NOT BUILT.
+- Wall-clock playback rates in headless SwiftShader are below real time (frames > 250 ms clamp); viewing rates on real hardware NOT MEASURED.
+- The Canvas commits through its own React root; tests wait for the committed step (usually well under 100 ms; up to a few hundred ms under SwiftShader).
+- ARP, ICMP, RST, CLOSING, TLS, fault UI: NOT BUILT.
+
+## Next phase: **10**
+
 ## Phase 08 · 3D journey stage — COMPLETE (2026-10-26)
 
 ### Completed
@@ -16,7 +38,6 @@
 - Frame-budget fallback logic only unit-reasoned; real devices NOT MEASURED.
 - ARP, ICMP, RST, CLOSING, TLS, fault UI, cue builder, GSAP master timeline, playback clock: NOT BUILT.
 
-## Next phase: **09**
 
 ## Phase 07 · Close and application session — COMPLETE (2026-10-26)
 

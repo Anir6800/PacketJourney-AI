@@ -366,3 +366,19 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .stage3d-fx { position: absolute; z-index: 40; right: 10px; bottom: 8px; pointer-events: none; }
 .stage3d[data-layout='column'] .label3d-shells { white-space: normal; width: max-content; max-width: 150px; }
 .stage3d[data-layout='column'] .label3d-shells li { overflow-wrap: anywhere; }
+
+/* Motion system (phase 09) */
+.cue-overlay { position: absolute; z-index: 45; left: 10px; bottom: 30px; max-width: min(420px, calc(100% - 20px)); pointer-events: none; visibility: hidden; }
+.decoder { display: grid; gap: 2px; background: var(--c-scrim); border: 1px solid var(--c-hairline); border-left: 3px solid var(--c-internet); border-radius: 6px; padding: 4px 8px; font-size: 0.78rem; }
+.decoder-head { color: var(--c-text); }
+.decoder-value { color: var(--c-internet); min-height: 1.2em; }
+.flyer { position: absolute; bottom: 100%; left: 0; margin-bottom: 6px; background: var(--c-scrim); border: 1px solid var(--c-transport); color: var(--c-transport); border-radius: 4px; padding: 1px 6px; font: 0.72rem 'JetBrains Mono', monospace; visibility: hidden; white-space: nowrap; }
+.ladder-svg { width: 100%; height: auto; max-height: 520px; }
+.ladder-life { stroke: var(--c-hairline); stroke-width: 2; }
+.ladder-seg line { stroke: var(--c-transport); stroke-width: 2; }
+.ladder-ack line { stroke: var(--c-success); stroke-width: 1.25; }
+.ladder-label { fill: var(--c-muted); font: 10px 'JetBrains Mono', monospace; }
+.ladder-seg text.svg-mono { fill: var(--c-transport); }
+.ladder-ack text.svg-mono { fill: var(--c-success); }
+.hidden-pause { color: var(--c-link); }
+.dock .scrub { flex: 1 1 200px; min-width: 140px; }

@@ -179,3 +179,20 @@ drei `Environment` and `Grid` pushed the lazy chunk over its 300 KB gzip budget 
 
 ## D-053 · Camera rigs jump; frame loop on demand
 Overview / Follow packet / Inspect layers place the camera instantly (cue-driven moves are phase 09; Reduced never animates the camera). OrbitControls have damping and distance limits and work while paused. `frameloop` is `demand` while paused, `always` only while playing (playback NOT BUILT, so always demand) and `never` when the tab is hidden or the context is lost. Bloom + vignette are off under Reduced motion and after 30 missed frame budgets. Playwright runs with one worker because every page renders SwiftShader WebGL on the CPU.
+
+## D-054 · Presentation time vs virtual time (2026-10-26)
+The clock owns presentation time (PT, seconds at 1×). `buildCues` gives every event a PT slot by cue kind (typeOn 0.6 s, wrap 0.5, unwrap 0.45, transmit 1.2, hop 0.5, ack 0.4, drop 0.8, retransmit 0.6, state 0.3). Virtual time is derived: transmit cues map PT linearly onto send start → arrival (exact engine timing); every other cue is a zero-VT **teaching hold**, shown as "teaching hold · presentation only" in the dock and never counted in metrics. The master timeline's duration is the last cue's end (an end marker is added).
+
+## D-055 · One clock, paused master, refs for 3D
+`PlaybackClock` runs one rAF loop (idempotent start, so StrictMode cannot double it; frame delta clamped at 250 ms). Each change calls `master.time(pt)`; the master is created `paused` and never played. Components add child timelines at 0 (`useMasterChild`, useGSAP-scoped, removed and reverted on rebuild/unmount). React state changes only when the event index changes; the timestamp, hold label and scrubber are written to the DOM per tick; the 3D stage reads `{index, progress, vt}` from a ref in `useFrame` and requests a frame on every clock change.
+
+## D-056 · Determinism rules for choreography
+- 3D shell scale/opacity, TTL flash, packet path and bit flow are pure functions of (snapshot model, cue progress).
+- GSAP `set` on `textContent` is not scrub-safe (reverting a set blends the two strings' numbers and text), and ScrambleText uses random characters. The decoder/flyer overlay is therefore one GSAP tween over the whole span whose `onUpdate` renders text as a pure function of timeline time, with a deterministic hex scramble.
+- Ladder arrows use numeric stroke-dashoffset tweens (initial offset = length in markup).
+
+## D-057 · Playback defaults and controls
+After every Run the clock sits paused at the end (full result visible, as before playback existed). Play from the end restarts at 0. Stepping (log rows, journey buttons, ←/→) lands at the end of the event's cue, so its state is fully shown. Shortcuts: Space/K play-pause, ←/→ or ,/. previous/next event, Home reset, all ignored inside inputs, selects, textareas, tab lists, open dialogs, and Space on focused buttons. A hidden tab pauses with "Paused: tab was hidden". One polite live region (App announcer) speaks per event; the journey caption and stage summary are no longer live.
+
+## D-058 · Camera and Reduced motion
+Follow rig: eased (power2.inOut) 0.6–1.2 s dolly on cue changes, held while a typeOn or wrap cue is showing text. Overview/Inspect jump. Reduced motion: cue progress is treated as 1 (shells switch instantly), no scramble or flyer, no camera moves, no bloom pulse; playback and stepping still work. Typing of the payload text: NOT BUILT (typeOn cues show the app write via the decoder/labels instantly).

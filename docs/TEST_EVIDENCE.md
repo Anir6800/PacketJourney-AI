@@ -1,5 +1,35 @@
 # Test Evidence
 
+## Phase 09 — 2026-10-26
+
+Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **201 passed** (10 files; new `web/src/motion/motion.test.ts` 7), build ok (initial **140.87 kB gzip**, lazy 3D **282.09 kB gzip**), secrets clean, Playwright **35 passed** (new `e2e/motion.spec.ts` 7).
+
+`motion.test.ts` (routed TCP + close fixture): one cue per event, contiguous PT, each slot = its kind's duration, span = sum; kinds typeOn/wrap/unwrap/transmit/hop/ack/state from tags; transmit cues span exact send start → arrival, every other cue is a zero-VT hold; `locate` mid-transmit → progress 0.5 and VT at the exact midpoint; ladder spans start at first transmit and end at the peer. Clock with a fake 16 ms frame source: 2× reaches the end in half the frames of 1×; PT → (event, VT) independent of speed; play from end restarts at 0; repeated play keeps one scheduled frame; 250 ms frame clamp; pause freezes PT; loops 0 after pause/end.
+
+E2E `motion.spec.ts`:
+- Master duration = mapped span = clock duration; starts paused at the end; masterTime = span; 0 loops, 0 active tweens; routed TCP span larger.
+- 1.5 s of play at 1×: PT per wall second between 0.4 and 1.15 (one loop; a duplicate StrictMode loop would give ≈2); loops 1. Pause → after 700 ms, PT, masterTime, packet world position, shells, timestamp, ladder offsets and captions unchanged; masterTime = PT.
+- Speed: PT per wall second consumed by the real rAF loop **1.000000 at 1×, 2.000000 at 2×**; playing to the end at 2× gives the same end state and dock text (virtual end, events) as before playing; 4 sampled PTs identical after 2× play.
+- Scrub: 12 PTs across the routed TCP run captured forward (seek), then reproduced by the scrub range input backward: event index, VT, committed scene step, present shells, shell scale/opacity/visibility, packet position, labels, decoder text, TCP states, SND/RCV.NXT, ladder dashoffsets, timestamp and caption all equal. Mid-wrap link shell scale > 0.34 (1.15 → 1 in progress).
+- Reset (Rewind to start) after play: PT 0, paused, loops 0, active tweens 0; new Run while playing → paused at end, loops 0, active tweens 0.
+- Reduced: mid-wrap link shell at final scale 0.34 / opacity 0.22, decoder already shows `FCS xx xx xx xx`, effects off, Follow rig + ArrowRight still steps.
+- Hidden tab → paused + "Paused: tab was hidden"; Space toggles play on the page, types a space in the message field; ArrowLeft in the field leaves PT unchanged; Home → PT 0; ArrowRight → event 1; exactly one polite live region besides the console log; announcer "Step 2: …".
+
+### Browser observations (Claude in Chrome, dev server)
+- Default page: master duration 15.5 s = span; 1 s of play advanced PT by 0.92 s (no double speed); pause froze PT and master time together.
+- Routed TCP paused mid hop:R1:egress (progress 0.58, VT 1.283 ms): packet between R1 and R2 on L2 with magenta bit particles and "bit stream · teaching view"; shell list Link 02:00:00:00:01:01 → 02:00:00:00:02:00, Internet TTL 63, Transport seq 1000, Application 0 B; decoder "R1 · Ethernet header + FCS · 64 B" (value then empty → fixed: FCS from frame bytes); dock teaching-hold label / timestamp.
+- First determinism probe found 1/12 mismatch with garbled decoder text "CRC0 residue 0x0DF0C ✓" → see repair 2; after repairs 12/12 identical.
+
+### Repair log (phase 09)
+1. ScrambleText (random chars, records original text at first render) not scrub-safe → deterministic scramble.
+2. GSAP `set` on `textContent` blends strings when reverted (numbers from one string, text from the other) → overlay rendered by one span-long tween's onUpdate as a pure function of time (D-056).
+3. `gsapActive` counted idle children of the paused master (72) → counts only active tweens.
+4. Seeks while paused did not render a frame (cue progress lives in a ref) → `ClockFrames` invalidates on every clock change.
+5. Hook labels came from a stale effect closure → read from the projected DOM labels.
+6. Router `encap:link` carried no FCS arg → decoder reads the frame's last 4 bytes.
+7. New dock buttons "Reset to start"/"Next event" collided with existing accessible names in older tests → renamed "Rewind to start", "Back one event", "Forward one event".
+8. Wall-clock speed ratio under SwiftShader varied (2.41, 1.77, 1.48 across runs) → asserts the exact ratio against the loop's consumed wall time instead (machine-independent); raw-rate lower bound kept only for the double-loop check.
+
 ## Phase 08 — 2026-10-26
 
 Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **194 passed** (9 files; new `web/src/scene/model.test.ts` 5), build ok (initial **136.25 kB gzip**, lazy `JourneyStage3D` **281.26 kB gzip**, budget 300), secrets clean, Playwright **28 passed** (1 worker).

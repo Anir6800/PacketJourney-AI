@@ -11,9 +11,13 @@ import { color } from './tokens.ts';
 import { Segmented } from './ui.tsx';
 import { SHELL_ORDER, columnLayout, type SceneDevice, type SceneLink, type SceneModel, type ShellLayer, type Vec3 } from './scene/model.ts';
 import type { Selection } from './selection.ts';
+import { gsap } from './gsap.ts';
+import { ease } from './tokens.ts';
+import type { Motion as MotionApi } from './motion/motion.ts';
 
 // Lazy chunk. Renders the pure scene model only: no protocol logic, no engine mutation.
-// Cue-driven camera moves and animated playback arrive with the playback clock (phase 09).
+// Motion: every frame reads the playback position (cue + progress) from a ref; nothing re-renders React per frame.
+// Visuals are a pure function of (snapshot model, cue progress), so scrubbing back reproduces them exactly.
 
 export type Rig = 'overview' | 'follow' | 'inspect';
 type Props = {
@@ -21,8 +25,9 @@ type Props = {
   selected: Selection;
   onSelect: (s: Selection) => void;
   reduced: boolean;
-  /** Continuous rendering only while playing (playback NOT BUILT yet, so always false today). */
+  /** Continuous rendering only while playing; on demand while paused. */
   playing: boolean;
+  motion: MotionApi;
   hidden: boolean;
   onContextLost: () => void;
   onContextRestored: () => void;
@@ -31,6 +36,17 @@ type Props = {
 const SHELL_RADIUS: Record<ShellLayer, number> = { app: 0.13, transport: 0.2, internet: 0.27, link: 0.34 };
 const EXPLODE = 1.9;
 const LAYER_NAME: Record<ShellLayer, string> = { app: 'Application', transport: 'Transport', internet: 'Internet', link: 'Link' };
+const easeOut = gsap.parseEase(ease.out);
+const easeInOut = gsap.parseEase('power2.inOut');
+const ACK_KINDS = new Set(['ack', 'hs-ack', 'response-ack', 'ack-fin-client', 'ack-fin-server']);
+const shellOpacity = (layer: ShellLayer) => (layer === 'app' ? 0.95 : 0.22);
+
+/** Progress of the cue that belongs to the rendered step (1 when the clock is elsewhere or under Reduced motion). */
+function cueProgress(m: MotionApi, step: number, reduced: boolean) {
+  const pos = m.pos.current;
+  if (reduced || pos.index !== step) return { p: 1, kind: pos.cue?.kind ?? null };
+  return { p: pos.progress, kind: pos.cue?.kind ?? null };
+}
 
 const pointerOn = (e: ThreeEvent<PointerEvent>) => {
   e.stopPropagation();
@@ -114,27 +130,40 @@ function LinkView({ l }: { l: SceneLink }) {
 
 const BITS = 24;
 const tmpM = new Matrix4();
+const tmpV = new Vector3();
 
 /** Teaching view of serialization: one permanently mounted instanced mesh, hidden unless a frame is being serialized. */
-function BitStream({ l }: { l: SceneLink | null }) {
+function BitStream({ l, motion, step, reduced }: { l: SceneLink | null; motion: MotionApi; step: number; reduced: boolean }) {
   const mesh = useRef<InstancedMesh>(null);
+  const curve = useRef<CatmullRomCurve3 | null>(null);
   const invalidate = useThree((s) => s.invalidate);
   const key = l ? l.points.flat().join(',') : '';
+  const place = (shift: number) => {
+    const m = mesh.current;
+    const c = curve.current;
+    if (!m || !c) return;
+    for (let i = 0; i < BITS; i++) {
+      c.getPoint(0.04 + (((i / BITS + shift) % 1) * 0.92), tmpV);
+      m.setMatrixAt(i, tmpM.makeTranslation(tmpV.x, tmpV.y + 0.12 + (i % 2) * 0.05, tmpV.z));
+    }
+    m.instanceMatrix.needsUpdate = true;
+  };
   useLayoutEffect(() => {
     const m = mesh.current;
     if (!m) return;
     m.visible = Boolean(l);
+    curve.current = l ? new CatmullRomCurve3(l.points.map((p) => new Vector3(...p))) : null;
     if (l) {
-      const curve = new CatmullRomCurve3(l.points.map((p) => new Vector3(...p)));
-      for (let i = 0; i < BITS; i++) {
-        const b = curve.getPoint(0.04 + (i / BITS) * 0.92);
-        m.setMatrixAt(i, tmpM.makeTranslation(b.x, b.y + 0.12 + (i % 2) * 0.05, b.z));
-      }
-      m.instanceMatrix.needsUpdate = true;
+      place(0);
       m.computeBoundingSphere();
     }
     invalidate();
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Bits flow along the link while the frame is serialized/propagating (presentation of the transmit cue).
+  useFrame(() => {
+    if (!curve.current || reduced) return;
+    place(cueProgress(motion, step, reduced).p * 0.5);
+  });
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, BITS]} userData={{ pj: { type: 'bitstream', link: l?.id ?? null } }} visible={false}>
       <sphereGeometry args={[0.035, 8, 8]} />
@@ -143,26 +172,39 @@ function BitStream({ l }: { l: SceneLink | null }) {
   );
 }
 
-function Shell({ layer, present, label, exploded, reduced, selected, onSelect }: {
+function Shell({ layer, present, label, exploded, reduced, selected, onSelect, motion, step, adding, releasing, ttlFlash }: {
   layer: ShellLayer; present: boolean; label: string; exploded: boolean; reduced: boolean; selected: boolean; onSelect: (s: Selection) => void;
+  motion: MotionApi; step: number; adding: boolean; releasing: boolean; ttlFlash: boolean;
 }) {
   const mesh = useRef<Mesh>(null);
   const mat = useRef<MeshStandardMaterial>(null);
-  const invalidate = useThree((s) => s.invalidate);
   const { hover, bind } = useHover();
-  const target = present ? (layer === 'app' ? 0.95 : 0.22) : 0;
+  const target = present ? shellOpacity(layer) : 0;
   const r = SHELL_RADIUS[layer] * (exploded ? EXPLODE : 1);
+  const glow = layer === 'app' ? 2.2 : 0.6;
 
-  // Dissolve / re-form: ease opacity toward the snapshot's state, rendering only until settled.
-  useFrame((_, dt) => {
+  // Wrap: 1.15 → 1 with opacity; unwrap: releases outward; router forward: Internet shell flashes (TTL n → n−1).
+  // Pure function of the cue progress, so any scrub position renders identically.
+  useFrame(() => {
     const m = mat.current;
-    if (!m || !mesh.current) return;
-    const next = reduced ? target : m.opacity + (target - m.opacity) * Math.min(1, dt * 8);
-    m.opacity = Math.abs(next - target) < 0.004 ? target : next;
-    mesh.current.visible = m.opacity > 0.004;
-    if (m.opacity !== target) invalidate();
+    const o = mesh.current;
+    if (!m || !o) return;
+    const { p } = cueProgress(motion, step, reduced);
+    const e = easeOut(p);
+    let scale = r;
+    let opacity = target;
+    if (adding && present) {
+      scale = r * (1.15 - 0.15 * e);
+      opacity = target * e;
+    } else if (releasing) {
+      scale = r * (1 + 0.15 * e);
+      opacity = shellOpacity(layer) * (1 - e);
+    }
+    o.scale.setScalar(scale);
+    m.opacity = opacity;
+    m.emissiveIntensity = ttlFlash && layer === 'internet' ? glow + 1.8 * Math.sin(Math.PI * p) : glow;
+    o.visible = opacity > 0.004;
   });
-  useEffect(() => invalidate(), [target, invalidate]);
 
   return (
     <mesh
@@ -201,12 +243,35 @@ function Shell({ layer, present, label, exploded, reduced, selected, onSelect }:
   );
 }
 
-function Packet({ model, rig, reduced, selected, onSelect }: { model: SceneModel; rig: Rig; reduced: boolean; selected: Selection; onSelect: (s: Selection) => void }) {
+function Packet({ model, rig, reduced, selected, onSelect, motion }: {
+  model: SceneModel; rig: Rig; reduced: boolean; selected: Selection; onSelect: (s: Selection) => void; motion: MotionApi;
+}) {
   const p = model.packet;
   const exploded = rig === 'inspect';
   const present = new Set(p?.shells.map((s) => s.layer));
+  const group = useRef<Object3D>(null);
+  const link = model.links.find((l) => l.id === p?.onLink);
+  const key = link ? link.points.flat().join(',') : '';
+  const curve = useMemo(() => (link ? new CatmullRomCurve3(link.points.map((v) => new Vector3(...v))) : null), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ack = ACK_KINDS.has(p?.kind ?? '');
+  useFrame(() => {
+    const g = group.current;
+    if (!g || !p) return;
+    const { p: prog, kind } = cueProgress(motion, model.step, reduced);
+    if (curve && link && kind === 'transmit' && !reduced) {
+      // Progress is linear in virtual time between send start and arrival (exact, from the engine's timing).
+      const t = link.from === p.from ? prog : 1 - prog;
+      curve.getPoint(t, tmpV);
+      g.position.set(tmpV.x, tmpV.y + 0.75, tmpV.z);
+    } else g.position.set(...p.position);
+  });
   return (
-    <group position={p?.position ?? [0, -50, 0]} visible={Boolean(p)} userData={{ pj: { type: 'packet', id: p?.id ?? null } }}>
+    <group ref={group} position={p?.position ?? [0, -50, 0]} visible={Boolean(p)} scale={ack ? 0.62 : 1} userData={{ pj: { type: 'packet', id: p?.id ?? null, ack } }}>
+      {/* ACKs travel back as a smaller capsule with a distinct ring. */}
+      <mesh visible={ack} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.42, 0.025, 8, 32]} />
+        <meshStandardMaterial color={color.success} emissive={color.success} emissiveIntensity={1.4} />
+      </mesh>
       {SHELL_ORDER.map((layer) => (
         <Shell
           key={layer}
@@ -217,6 +282,11 @@ function Packet({ model, rig, reduced, selected, onSelect }: { model: SceneModel
           reduced={reduced}
           selected={selected.kind === 'layer' && selected.layer === layer}
           onSelect={onSelect}
+          motion={motion}
+          step={model.step}
+          adding={p?.adding === layer}
+          releasing={p?.releasing === layer}
+          ttlFlash={Boolean(p?.ttlFlash)}
         />
       ))}
     </group>
@@ -224,7 +294,10 @@ function Packet({ model, rig, reduced, selected, onSelect }: { model: SceneModel
 }
 
 /** Places the camera for the chosen rig. Instant jumps: cue-driven moves are phase 09, and Reduced never moves the camera. */
-function CameraRig({ rig, model }: { rig: Rig; model: SceneModel }) {
+type Move = { fromPos: Vector3; fromTarget: Vector3; toPos: Vector3; toTarget: Vector3; t0: number | null; dur: number };
+
+function CameraRig({ rig, model, motion, reduced }: { rig: Rig; model: SceneModel; motion: MotionApi; reduced: boolean }) {
+  const move = useRef<Move | null>(null);
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null;
   const size = useThree((s) => s.size);
@@ -250,13 +323,47 @@ function CameraRig({ rig, model }: { rig: Rig; model: SceneModel }) {
       target = [p[0] + 0.9, p[1], p[2]];
       pos = rig === 'follow' ? [p[0] + 1.4, p[1] + 1.8, p[2] + 6] : [p[0] + 1.1, p[1] + 0.7, p[2] + 4.2];
     }
+    if (rig === 'follow' && !reduced && controls) {
+      // Eased dolly (0.6–1.2 s, wall clock; presentation only). Reduced motion never moves the camera.
+      const toPos = new Vector3(...pos);
+      move.current = {
+        fromPos: camera.position.clone(), fromTarget: controls.target.clone(), toPos, toTarget: new Vector3(...target),
+        t0: null, dur: Math.min(1.2, Math.max(0.6, 0.6 + camera.position.distanceTo(toPos) * 0.08)),
+      };
+      invalidate();
+      return;
+    }
+    move.current = null;
     camera.position.set(...pos);
     if (controls) {
       controls.target.set(...target);
       controls.update();
     } else camera.lookAt(...target);
     invalidate();
-  }, [rig, follow, n, model.layout, size.width, size.height, camera, controls, invalidate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rig, follow, n, model.layout, size.width, size.height, camera, controls, invalidate, reduced]); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }) => {
+    const mv = move.current;
+    if (!mv || !controls) return;
+    // Hold while text the user must read is appearing (type-on and header decode).
+    const kind = motion.pos.current.cue?.kind;
+    if (mv.t0 === null) {
+      if (kind === 'typeOn' || kind === 'wrap') return;
+      mv.t0 = clock.elapsedTime;
+    }
+    const k = easeInOut(Math.min(1, (clock.elapsedTime - mv.t0) / mv.dur));
+    camera.position.lerpVectors(mv.fromPos, mv.toPos, k);
+    controls.target.lerpVectors(mv.fromTarget, mv.toTarget, k);
+    controls.update();
+    if (k >= 1) move.current = null;
+    else invalidate();
+  });
+  return null;
+}
+
+/** Demand rendering: every clock change (seek, scrub, step) requests a frame, since cue progress lives in a ref. */
+function ClockFrames({ motion }: { motion: MotionApi }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => motion.clock.subscribe(() => invalidate()), [motion, invalidate]);
   return null;
 }
 
@@ -345,16 +452,22 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
       const shells: (Pj & { visible: boolean })[] = [];
       let bitStream = false;
       let step = -1;
+      let packetPos: number[] = [];
       scene.traverse((o) => {
         const pj = pjOf(o);
         if (!pj) return;
         if (pj.type === 'step') step = pj.step as number;
         if (pj.type === 'device') devices.push(pj);
         if (pj.type === 'link') links.push(pj);
-        if (pj.type === 'shell') shells.push({ ...pj, visible: o.visible });
+        if (pj.type === 'shell') {
+          const mm = (o as Mesh).material as MeshStandardMaterial;
+          shells.push({ ...pj, visible: o.visible, opacity: Math.round(mm.opacity * 1e4) / 1e4, scale: Math.round(o.scale.x * 1e4) / 1e4 });
+        }
+        if (pj.type === 'packet') packetPos = o.getWorldPosition(new Vector3()).toArray().map((x) => Math.round(x * 1e4) / 1e4);
         if (pj.type === 'bitstream' && o.visible) bitStream = true;
       });
-      const labels = labelsFor(model, rig).map((l) => l.text);
+      // Labels as rendered (projected DOM in the main tree), not a closure over the last model.
+      const labels = Array.from(gl.domElement.closest('.stage3d')?.querySelectorAll('.labels3d .label3d') ?? [], (e) => e.textContent ?? '');
       return {
         template: model.template,
         layout: model.layout,
@@ -363,6 +476,8 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
         devices,
         links,
         presentShells: shells.filter((s) => s.present).map((s) => ({ layer: s.layer, color: s.color, label: s.label })),
+        shellVisuals: shells.map((s) => ({ layer: s.layer, visible: s.visible, opacity: s.opacity, scale: s.scale })),
+        packetPos,
         bitStream,
         labels,
         rig,
@@ -474,7 +589,8 @@ export default function JourneyStage3D(p: Props) {
       <span className="hud-label stage3d-fx" data-testid="fx-status">
         {fx ? 'Bloom + vignette' : p.reduced ? 'Effects off · Reduced motion' : 'Effects off · frame budget missed'}
       </span>
-      <p className="sr-only" aria-live="polite" data-testid="stage-summary">
+      {/* Not a live region: App's single announcer speaks once per event. */}
+      <p className="sr-only" data-testid="stage-summary">
         {model.summary}
       </p>
       <div className="labels3d" ref={labelLayer} aria-hidden="true">
@@ -523,14 +639,15 @@ export default function JourneyStage3D(p: Props) {
           <meshStandardMaterial color={color.bg1} emissive={color.link} emissiveIntensity={1.2} />
           {model.devices.flatMap((d) => d.ports.map((pt) => <Instance key={`${d.id}.${pt.iface}`} position={pt.position} />))}
         </Instances>
-        <BitStream l={model.packet?.bitStream && active ? active : null} />
-        <Packet model={model} rig={rig} reduced={p.reduced} selected={p.selected} onSelect={p.onSelect} />
+        <BitStream l={model.packet?.bitStream && active ? active : null} motion={p.motion} step={model.step} reduced={p.reduced} />
+        <Packet model={model} rig={rig} reduced={p.reduced} selected={p.selected} onSelect={p.onSelect} motion={p.motion} />
 
         <OrbitControls makeDefault enableDamping dampingFactor={0.12} minDistance={1.5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />
-        <CameraRig rig={rig} model={model} />
+        <CameraRig rig={rig} model={model} motion={p.motion} reduced={p.reduced} />
         {fx && <Effects />}
         {fx && <BudgetWatch onMiss={() => setBudgetMissed(true)} />}
         <group userData={{ pj: { type: 'step', step: model.step } }} />
+        <ClockFrames motion={p.motion} />
         <LabelProjector labels={labels} layer={labelLayer} />
         <TestHook model={model} rig={rig} fx={fx} />
       </Canvas>

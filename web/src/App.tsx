@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_SIM,
   RunController,
@@ -33,6 +33,12 @@ import { selection, useSelection, type Selection } from './selection.ts';
 import { fmtTime } from './format.ts';
 import { hasWebGL, type Motion, type View } from './settings.ts';
 import { useBoot } from './useBoot.ts';
+import { buildCues, locate, spanOf } from './motion/cues.ts';
+import { SPEEDS, type Speed } from './motion/clock.ts';
+import { MotionContext, createMotion, setCues } from './motion/motion.ts';
+import { Ladder } from './Ladder.tsx';
+import { CueOverlay } from './CueOverlay.tsx';
+import { debug } from './debug.ts';
 
 const JourneyStage3D = lazy(() => import('./JourneyStage3D.tsx'));
 
@@ -91,6 +97,15 @@ export function App() {
   const [docHidden, setDocHidden] = useState(() => document.hidden);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
+  // The one playback clock + paused GSAP master timeline (created once; StrictMode reuses the same object).
+  const [mo] = useState(createMotion);
+  /** Current event index, set by the clock only when it changes (never per frame). */
+  const [step, setStep] = useState(0);
+  const [clockUi, setClockUi] = useState<{ playing: boolean; speed: Speed }>({ playing: false, speed: 1 });
+  const [hiddenPause, setHiddenPause] = useState(false);
+  const tsRef = useRef<HTMLSpanElement>(null);
+  const holdRef = useRef<HTMLSpanElement>(null);
+  const scrubRef = useRef<HTMLInputElement>(null);
   // One controller per app; each Run freezes the config and replaces the previous run entirely.
   // Created together in one initializer so StrictMode's double call can't start two runs on one controller.
   const [{ controller, first }] = useState(() => {
@@ -125,11 +140,55 @@ export function App() {
     const sync = () => {
       document.documentElement.dataset.hidden = String(document.hidden);
       setDocHidden(document.hidden);
+      // A hidden tab pauses playback, with a visible note in the dock.
+      if (document.hidden && mo.clock.state.playing) {
+        mo.clock.pause();
+        setHiddenPause(true);
+      }
     };
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => document.removeEventListener('visibilitychange', sync);
-  }, []);
+  }, [mo]);
+
+  // Clock → master timeline, 3D ref, panels (on event change only), dock DOM text. One subscription.
+  useEffect(() => {
+    let lastIdx = -2;
+    let ui = '';
+    const unsub = mo.clock.subscribe((s) => {
+      const pos = locate(mo.cues.current, s.pt);
+      mo.pos.current = pos;
+      mo.master.time(s.pt);
+      if (pos.index !== lastIdx) {
+        lastIdx = pos.index;
+        setStep(Math.max(0, pos.index));
+      }
+      const u = `${s.playing}|${s.speed}`;
+      if (u !== ui) {
+        ui = u;
+        setClockUi({ playing: s.playing, speed: s.speed });
+      }
+      if (tsRef.current) tsRef.current.textContent = `t = ${fmtTime(pos.vt)}`;
+      if (holdRef.current) holdRef.current.textContent = pos.cue?.hold ? 'teaching hold · presentation only' : pos.cue ? 'virtual time advancing' : '';
+      if (scrubRef.current && document.activeElement !== scrubRef.current) scrubRef.current.value = String(s.pt);
+    });
+    if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
+      debug.motion = () => {
+        const s = mo.clock.state;
+        const p = locate(mo.cues.current, s.pt);
+        return {
+          pt: s.pt, playing: s.playing, speed: s.speed, duration: s.duration, index: p.index, progress: p.progress, vt: p.vt, kind: p.cue?.kind ?? null,
+          loops: mo.clock.loops, consumedMs: mo.clock.consumedMs, masterTime: mo.master.time(), masterDuration: mo.master.duration(), span: spanOf(mo.cues.current),
+          activeTweens: debug.gsapActive(),
+        };
+      };
+      debug.seek = (pt: number) => mo.clock.seek(pt);
+    }
+    return () => {
+      unsub();
+      mo.clock.pause(); // no orphan rAF after unmount (and StrictMode's test unmount)
+    };
+  }, [mo]);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -158,7 +217,29 @@ export function App() {
   const sentText = new TextDecoder().decode(Uint8Array.from(run.events.find((e) => e.tag === 'app:send')?.bytes ?? []));
   const reps = representations(sentText);
   const evSnap = selectedEvent === null ? null : run.timeline.at(selectedEvent);
-  const journeyIndex = selectedEvent ?? run.events.length - 1;
+  const journeyIndex = Math.min(step, run.events.length - 1);
+  const cues = useMemo(() => buildCues(run.events), [run]);
+  // New run (or A/B switch): new cues and labels; paused at the end so the full result shows, like before playback existed.
+  useLayoutEffect(() => {
+    setCues(mo, cues);
+    mo.clock.reset(spanOf(cues), spanOf(cues));
+    mo.sync();
+  }, [mo, cues]);
+  const seekEvent = (i: number) => {
+    const c = cues[Math.max(0, Math.min(cues.length - 1, i))];
+    if (!c) return;
+    mo.clock.pause();
+    // Land at the end of the event's cue: its state is fully shown.
+    mo.clock.seek(c.endPT - 1e-6);
+  };
+  const play = () => {
+    setHiddenPause(false);
+    mo.clock.toggle();
+  };
+  const resetPlayback = () => {
+    mo.clock.pause();
+    mo.clock.seek(0);
+  };
 
   const startRun = () => {
     if (issues.length) return;
@@ -179,6 +260,7 @@ export function App() {
     if (ses) setCookieB(ses.cookieB);
   };
   const selectEvent = (i: number) => {
+    seekEvent(i);
     setSelectedEvent(i);
     setSelectedField(null);
     setShowSel(false);
@@ -210,8 +292,41 @@ export function App() {
 
   const openInspector = () => drawer && setDrawerOpen(true);
 
+  const keys = useRef({ seekEvent, play, resetPlayback, journeyIndex });
+  useLayoutEffect(() => {
+    keys.current = { seekEvent, play, resetPlayback, journeyIndex };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="tablist"], dialog[open]')) return;
+      const k = keys.current;
+      if (e.key === ' ' || e.key === 'k') {
+        if (t?.closest('button, summary, a, [role="button"]')) return; // Space activates the focused control
+        e.preventDefault();
+        k.play();
+      } else if (e.key === 'ArrowRight' || e.key === '.') {
+        e.preventDefault();
+        k.seekEvent(k.journeyIndex + 1);
+      } else if (e.key === 'ArrowLeft' || e.key === ',') {
+        e.preventDefault();
+        k.seekEvent(k.journeyIndex - 1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        k.resetPlayback();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
+    <MotionContext.Provider value={mo}>
     <div className="app" ref={root} onKeyDown={(e) => e.key === 'Escape' && drawerOpen && setDrawerOpen(false)}>
+      <p className="sr-only" aria-live="polite" data-testid="announcer">
+        {curEv ? `Step ${journeyIndex + 1}: ${curEv.tag}. ${explain(curEv)}` : ''}
+      </p>
       <div className="grid-bg" aria-hidden="true">
         <div className="grid-plane" />
       </div>
@@ -287,7 +402,8 @@ export function App() {
                             selected={sel}
                             onSelect={pick}
                             reduced={reduced}
-                            playing={false}
+                            playing={clockUi.playing}
+                            motion={mo}
                             hidden={docHidden || contextLost}
                             onContextLost={() => setContextLost(true)}
                             onContextRestored={() => setContextLost(false)}
@@ -296,6 +412,7 @@ export function App() {
                       </div>
                     )}
                     {!webgl && <Stage2D reason={fallbackReason} />}
+                    <CueOverlay run={run} cues={cues} reduced={reduced} />
                   </div>
                   <Journey2D
                     key={`${run.runId}:${conn}`}
@@ -305,6 +422,7 @@ export function App() {
                     selectedDevice={sel.kind === 'device' ? sel.id : null}
                     onSelectDevice={(id) => pick({ kind: 'device', id })}
                   />
+                  <Ladder run={run} cues={cues} reduced={reduced} />
                   <ol className="stack" aria-label="Layer stack (SIMULATED)">
                     {stack.map((r) => (
                       <li key={r.layer}>
@@ -429,13 +547,44 @@ export function App() {
 
       <footer className="dock glass hud-enter" aria-label="Timeline">
         <div className="seg" role="group" aria-label="Playback">
-          <button type="button" disabled aria-label="Step back">⏮</button>
-          <button type="button" disabled aria-label="Play">▶</button>
-          <button type="button" disabled aria-label="Step forward">⏭</button>
+          <button type="button" aria-label="Rewind to start" onClick={resetPlayback}>⏮</button>
+          <button type="button" aria-label="Back one event" onClick={() => seekEvent(journeyIndex - 1)}>◀</button>
+          <button type="button" aria-label={clockUi.playing ? 'Pause' : 'Play'} aria-pressed={clockUi.playing} data-testid="play" onClick={play}>
+            {clockUi.playing ? '⏸' : '▶'}
+          </button>
+          <button type="button" aria-label="Forward one event" onClick={() => seekEvent(journeyIndex + 1)}>▶|</button>
         </div>
-        <input type="range" className="scrub" disabled aria-label="Timeline position" min={0} max={100} defaultValue={0} />
+        <Segmented
+          label="Speed"
+          value={String(clockUi.speed)}
+          onChange={(v) => mo.clock.setSpeed(Number(v) as Speed)}
+          options={SPEEDS.map((x) => ({ value: String(x), label: `${x}×` }))}
+        />
+        <input
+          ref={scrubRef}
+          type="range"
+          className="scrub"
+          aria-label="Timeline position"
+          aria-valuetext={curEv ? `Event ${journeyIndex + 1} of ${run.events.length}: ${curEv.tag}` : ''}
+          min={0}
+          max={spanOf(cues)}
+          step={0.001}
+          defaultValue={spanOf(cues)}
+          data-testid="scrub"
+          onChange={(e) => {
+            mo.clock.pause();
+            mo.clock.seek(Number(e.target.value));
+          }}
+        />
         <span className="hud-label" data-testid="dock-status">
-          Playback NOT BUILT · {run.events.length} events · virtual end <span className="unit">{fmtTime(snap.end?.atMs ?? 0)}</span> · SIMULATED
+          <span ref={tsRef} data-testid="timestamp" className="unit" /> · <span ref={holdRef} data-testid="hold" /> · {run.events.length} events · virtual end{' '}
+          <span className="unit">{fmtTime(snap.end?.atMs ?? 0)}</span> · SIMULATED
+          {hiddenPause && (
+            <strong className="hidden-pause" data-testid="hidden-pause">
+              {' '}
+              · Paused: tab was hidden
+            </strong>
+          )}
         </span>
       </footer>
 
@@ -456,5 +605,6 @@ export function App() {
         </form>
       </dialog>
     </div>
+    </MotionContext.Provider>
   );
 }

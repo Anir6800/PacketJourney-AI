@@ -292,7 +292,7 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice }
           {index + 1} / {run.events.length} · t = {fmtTime(ev.virtualTimeMs)}
         </span>
       </div>
-      <p className="journey-caption" data-testid="journey-caption" aria-live="polite">
+      <p className="journey-caption" data-testid="journey-caption">
         <span className="ev-tag mono" style={{ '--layer': `var(--c-${ev.layer})` } as React.CSSProperties}>
           {ev.tag}
         </span>{' '}

@@ -27,7 +27,22 @@ export type SceneDevice = { id: string; kind: 'host' | 'router'; name: string; p
 export type SceneIface = { device: string; iface: string; ip: string; mac: string; position: Vec3; label: string };
 export type SceneLink = { id: string; from: string; to: string; points: Vec3[]; subnet: string; label: string; labelPos: Vec3; active: boolean };
 export type SceneShell = { layer: ShellLayer; color: string; label: string };
-export type ScenePacket = { id: string; position: Vec3; shells: SceneShell[]; onLink: string | null; bitStream: boolean };
+export type ScenePacket = {
+  id: string;
+  position: Vec3;
+  shells: SceneShell[];
+  onLink: string | null;
+  bitStream: boolean;
+  /** Packet kind from the engine (ACKs render as a smaller, distinct capsule). */
+  kind: string;
+  /** Device the packet travels from on `onLink` (direction of travel). */
+  from: string | null;
+  /** Shell this event wraps on (encap) or releases (decap): drives wrap/unwrap motion. */
+  adding: ShellLayer | null;
+  releasing: ShellLayer | null;
+  /** Router forward: the Internet shell flashes TTL n → n−1. */
+  ttlFlash: boolean;
+};
 export type SceneModel = {
   template: string;
   /** row: left→right (wide stages); column: top→bottom (narrow stages, so labels have room). */
@@ -127,7 +142,19 @@ export function sceneModel(run: SimRun, index: number, summary: string): SceneMo
     const shells = p ? shellsFor(ev, p.current, null) : [{ layer: 'app' as const, color: color.app, label: `Application · ${appBytes} B` }];
     const at = hop ? links.find((l) => l.id === hop.linkId) : null;
     const position: Vec3 = at?.points[1] ? [at.points[1][0], 1.1, 0] : [pos(ev.device)[0], 1.55, 0];
-    packet = { id: ev.packetId ?? ev.id, position, shells, onLink: at?.id ?? null, bitStream: Boolean(at) && ev.type === 'transmit' };
+    const depth = depthOf(ev.tag);
+    packet = {
+      id: ev.packetId ?? ev.id,
+      position,
+      shells,
+      onLink: at?.id ?? null,
+      bitStream: Boolean(at) && ev.type === 'transmit',
+      kind: p?.kind ?? 'data',
+      from: hop?.from ?? null,
+      adding: ev.tag.startsWith('encap:') || /^app:(send|respond)$/.test(ev.tag) ? (shells[0]?.layer ?? null) : null,
+      releasing: ev.tag.startsWith('decap:') ? (SHELL_ORDER[4 - depth - 1] ?? null) : null,
+      ttlFlash: /^hop:.+:forward$/.test(ev.tag),
+    };
   }
 
   return { template: t.id, layout: 'row', step: index, devices, ifaces, links, packet, summary };
