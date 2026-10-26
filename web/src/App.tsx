@@ -39,6 +39,9 @@ import { MotionContext, createMotion, setCues } from './motion/motion.ts';
 import { Ladder } from './Ladder.tsx';
 import { CueOverlay } from './CueOverlay.tsx';
 import { debug } from './debug.ts';
+import { StoryPanel } from './StoryPanel.tsx';
+import { buildStory } from './story/script.ts';
+import { INITIAL_STORY, loadStory, saveStory, type StoryState } from './story/questions.ts';
 
 const JourneyStage3D = lazy(() => import('./JourneyStage3D.tsx'));
 
@@ -85,7 +88,15 @@ export function App() {
   const motion: Motion = motionPref ?? (osReduced ? 'reduced' : 'cinematic');
   const reduced = motion === 'reduced';
 
-  const [mode, setMode] = useState<Mode>('story');
+  // Story Mode is the first-run default; the choice and story progress persist for the session (resumable).
+  const [mode, setMode] = useState<Mode>(() => {
+    try {
+      return sessionStorage.getItem('pj.mode') === 'lab' ? 'lab' : 'story';
+    } catch {
+      return 'story';
+    }
+  });
+  const [story, setStory] = useState<StoryState>(loadStory);
   const [view, setView] = useState<View>('3d');
   const [contextLost, setContextLost] = useState(false);
   const [tab, setTab] = useState<Tab>('journey');
@@ -110,7 +121,9 @@ export function App() {
   // Created together in one initializer so StrictMode's double call can't start two runs on one controller.
   const [{ controller, first }] = useState(() => {
     const c = new RunController();
-    return { controller: c, first: c.start(structuredClone(DEFAULT_SIM)) };
+    // A story in progress resumes its own (deterministic) run.
+    const saved = loadStory();
+    return { controller: c, first: c.start(structuredClone(saved.phase === 'play' && saved.config ? saved.config : DEFAULT_SIM)) };
   });
   const [latest, setRun] = useState(first);
   /** HTTP mode: both connections plus the draft and cookie choice that produced them. */
@@ -130,7 +143,8 @@ export function App() {
 
   const drawer = useMediaQuery('(max-width: 1280px) and (min-width: 769px)');
 
-  useBoot(root, reduced, WORDMARK);
+  // The 3D chunk loads after the intro: loading/compiling it during the intro stalls the main thread and stretches it.
+  const booting = useBoot(root, reduced, WORDMARK);
 
   useEffect(() => {
     document.documentElement.dataset.motion = motion;
@@ -267,6 +281,33 @@ export function App() {
     openInspector();
   };
   /** One entry point for 3D clicks, 2D journey nodes and the layer stack. */
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('pj.mode', mode);
+    } catch {
+      // non-essential
+    }
+  }, [mode]);
+  useEffect(() => saveStory(story), [story]);
+
+  // Built only while a story plays (it re-runs the engine for its predictions): keeps first load and Lab light.
+  const storyPlaying = mode === 'story' && story.phase === 'play';
+  const beats = useMemo(() => (storyPlaying ? buildStory(run) : []), [run, storyPlaying]);
+  const beat = mode === 'story' && story.phase === 'play' ? beats[Math.min(story.beat, beats.length - 1)] : undefined;
+  useEffect(() => {
+    if (import.meta.env.DEV || import.meta.env.MODE === 'test') debug.story = () => beats.map((b) => ({ id: b.id, chapter: b.chapter, kind: b.kind, layer: b.layer, text: [b.title, ...b.lines] }));
+  }, [beats]);
+  const startStory = () => {
+    if (validateSimConfig(draft).length) return false;
+    startRun();
+    setStory((st) => ({ ...st, phase: 'play', beat: 0, config: structuredClone(draft) }));
+    return true;
+  };
+  const replayAsStory = () => {
+    setStory((st) => ({ ...INITIAL_STORY, auto: st.auto, phase: 'play', config: structuredClone(run.config) }));
+    setMode('story');
+  };
+
   const pick = (s: Selection) => {
     selection.set(s);
     setShowSel(true);
@@ -274,14 +315,14 @@ export function App() {
     openInspector();
   };
   const selField = selectedField ? field(snap, selectedField) : undefined;
-  const webglWanted = view === '3d' && hasWebGL();
+  const webglWanted = view === '3d' && hasWebGL() && !booting;
   const webgl = webglWanted && !contextLost;
   const curEv = run.events[journeyIndex];
   const model = useMemo(
     () => sceneModel(run, journeyIndex, curEv ? `Step ${journeyIndex + 1} of ${run.events.length}: ${explain(curEv)}` : ''),
     [run, journeyIndex, curEv],
   );
-  const fallbackReason = !hasWebGL() ? 'WebGL unavailable' : view === '2d' ? 'View set to 2D' : contextLost ? 'WebGL context lost' : '';
+  const fallbackReason = !hasWebGL() ? 'WebGL unavailable' : view === '2d' ? 'View set to 2D' : contextLost ? 'WebGL context lost' : booting ? 'Loading 3D stage after the intro…' : '';
 
   const unitLen = (l: LayerId) => (l === 'physical' ? 0 : (snap.units[l]?.length ?? 0));
   const inner: Record<string, LayerId | null> = { link: 'internet', internet: 'transport', transport: 'app', app: null };
@@ -292,9 +333,26 @@ export function App() {
 
   const openInspector = () => drawer && setDrawerOpen(true);
 
-  const keys = useRef({ seekEvent, play, resetPlayback, journeyIndex });
+  const applyBeat = useRef<(b: NonNullable<typeof beat>) => void>(() => undefined);
   useLayoutEffect(() => {
-    keys.current = { seekEvent, play, resetPlayback, journeyIndex };
+    applyBeat.current = (b) => {
+      seekEvent(b.event);
+      setSelectedEvent(b.event);
+      setSelectedField(null);
+      if (b.layer) {
+        selection.set({ kind: 'layer', layer: b.layer });
+        setShowSel(true);
+      } else setShowSel(false);
+      setTab('journey');
+    };
+  });
+  useEffect(() => {
+    if (beat) applyBeat.current(beat);
+  }, [beat?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const keys = useRef({ seekEvent, play, resetPlayback, journeyIndex, storyActive: false });
+  useLayoutEffect(() => {
+    keys.current = { seekEvent, play, resetPlayback, journeyIndex, storyActive: Boolean(beat) };
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -302,6 +360,7 @@ export function App() {
       const t = e.target as HTMLElement | null;
       if (t?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="tablist"], dialog[open]')) return;
       const k = keys.current;
+      if (k.storyActive) return; // the story player owns Space/arrows while a story is playing
       if (e.key === ' ' || e.key === 'k') {
         if (t?.closest('button, summary, a, [role="button"]')) return; // Space activates the focused control
         e.preventDefault();
@@ -358,9 +417,25 @@ export function App() {
       </header>
 
       <main className="layout">
-        <aside className="rail glass hud-enter" aria-label="Configuration">
+        <aside className={`rail glass hud-enter${mode === 'story' ? ' rail-story' : ''}`} aria-label={mode === 'story' ? 'Story' : 'Configuration'}>
           <HudLabel>{mode === 'story' ? 'Story Mode' : 'Lab Mode'}</HudLabel>
-          <p className="muted small">{mode === 'story' ? 'Guided narration NOT BUILT.' : 'Free lab controls NOT BUILT beyond this form.'}</p>
+          {mode === 'story' ? (
+            <StoryPanel
+              draft={draft}
+              setDraft={setDraft}
+              beats={beats}
+              story={story}
+              setStory={setStory}
+              reduced={reduced}
+              onStart={startStory}
+              onPractice={() => setTab('practice')}
+            />
+          ) : (
+            <>
+          <p className="muted small">Free lab: every setting below. The story's answers live here too.</p>
+          <button type="button" className="btn" data-testid="replay-story" onClick={replayAsStory}>
+            Replay this run as a story
+          </button>
           <ConfigForm
             draft={draft}
             setDraft={setDraft}
@@ -373,7 +448,11 @@ export function App() {
             setCookieB={setCookieB}
           />
           <HudLabel>Faults</HudLabel>
-          <p className="muted small">Loss, corruption, reordering: NOT BUILT.</p>
+          <p className="muted small" data-testid="lab-faults">
+            {draft.faults.length ? 'Lose the first data packet once (set in Story Mode).' : 'None.'} Corruption, duplication, reordering: NOT BUILT.
+          </p>
+            </>
+          )}
         </aside>
 
         <section className="stage glass hud-enter" aria-label="Journey stage">
@@ -404,6 +483,7 @@ export function App() {
                             reduced={reduced}
                             playing={clockUi.playing}
                             motion={mo}
+                            rig={beat?.rig}
                             hidden={docHidden || contextLost}
                             onContextLost={() => setContextLost(true)}
                             onContextRestored={() => setContextLost(false)}
@@ -421,6 +501,7 @@ export function App() {
                     onStep={selectEvent}
                     selectedDevice={sel.kind === 'device' ? sel.id : null}
                     onSelectDevice={(id) => pick({ kind: 'device', id })}
+                    scope={beat?.scope ?? undefined}
                   />
                   <Ladder run={run} cues={cues} reduced={reduced} />
                   <ol className="stack" aria-label="Layer stack (SIMULATED)">
@@ -511,6 +592,22 @@ export function App() {
             <DeviceDetail t={run.template} id={sel.id} />
           ) : (
             <>
+              {beat && beat.fields.length > 0 && (
+                <section aria-label="Key fields" className="story-fields">
+                  <HudLabel>Key fields · this beat</HudLabel>
+                  <dl className="facts mono" data-testid="story-fields">
+                    {beat.fields.map((id) => {
+                      const f = field(snap, id);
+                      return f ? (
+                        <div key={id} style={{ display: 'contents' }} data-field={id}>
+                          <dt className="hot">{f.name}</dt>
+                          <dd className="hot">{f.display}</dd>
+                        </div>
+                      ) : null;
+                    })}
+                  </dl>
+                </section>
+              )}
               <h2 className="layer-title" style={{ color: `var(--c-${selected})` }}>
                 <LayerGlyph layer={selected} size={22} /> {LAYERS[selected].name}
               </h2>

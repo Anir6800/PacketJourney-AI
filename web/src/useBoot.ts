@@ -16,8 +16,10 @@ function readBooted(): boolean {
 // Boot intro: ≤ 2.5 s, skippable by any key/click, once per session, skipped entirely under Reduced.
 // The decision is made once in useState, and sessionStorage is written only on completion, so the
 // StrictMode mount→revert→mount cycle restarts the same timeline instead of playing it twice.
-export function useBoot(scope: RefObject<HTMLElement | null>, reduced: boolean, wordmark: string): void {
+/** Returns true while the intro is playing (callers defer heavy work, e.g. the 3D chunk, until it ends). */
+export function useBoot(scope: RefObject<HTMLElement | null>, reduced: boolean, wordmark: string): boolean {
   const [play] = useState(() => !reduced && !readBooted());
+  const [running, setRunning] = useState(play);
 
   useGSAP(
     () => {
@@ -36,6 +38,7 @@ export function useBoot(scope: RefObject<HTMLElement | null>, reduced: boolean, 
             // storage blocked: intro may replay next load, harmless
           }
           debug.bootCompletions += 1;
+          setRunning(false);
         },
       });
       tl.from('.grid-bg', { opacity: 0, duration: 0.5, ease: 'none' })
@@ -48,4 +51,5 @@ export function useBoot(scope: RefObject<HTMLElement | null>, reduced: boolean, 
     },
     { scope },
   );
+  return running;
 }

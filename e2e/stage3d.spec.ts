@@ -22,7 +22,10 @@ test.beforeEach(async ({ page }) => {
     if (process.env.PJ_DEBUG) console.log('[browser]', m.type(), m.text().slice(0, 300));
   });
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.addInitScript(() => sessionStorage.setItem('pj.booted', '1'));
+  await page.addInitScript(() => {
+    sessionStorage.setItem('pj.booted', '1');
+    sessionStorage.setItem('pj.mode', 'lab');
+  });
 });
 test.afterEach(() => {
   expect(errors.splice(0), 'console errors').toEqual([]);

@@ -1,5 +1,26 @@
 # Status
 
+## Phase 10 · Story Mode — COMPLETE (2026-10-26)
+
+### Completed
+- Story Mode is the first-run default; Lab is one click away with the same config and run, plus "Replay this run as a story".
+- Questions one at a time, each typed then answered with inline validation and Back: message (live UTF-8 byte count), TCP/UDP cards with one-line truthful contrast, ports, same network vs routers, raw vs HTTP (TCP only), fault (none / lose the first data packet once — the only engine-implemented fault; unbuilt ones hidden), confirmation summary.
+- Chapters: Encapsulation (one beat per layer, Inspect rig, key fields with real values in the inspector), Journey (handshake/close states, sends, router hops with TTL and MACs, ACKs, deliveries, drops/retransmits), Decapsulation (outermost first with validation results), Recap (three scopes with the overlay, changed vs constant, two engine-answered predictions, Practice link).
+- Chapter progress rail, Next/Back/Skip chapter, Auto-play, Restart; Space/Enter/→ and ←; typing 45 chars/s, instantly completable; Reduced motion = full text. Resumable across reloads.
+- All captions are templates in `docs/STORY_SCRIPT.md` (67), filled from engine output only.
+
+### Commands and results
+`npm run verify` exit 0: typecheck 0, lint 0, vitest 210/210, build ok (initial 149.19 kB gzip, lazy 3D 282.12 kB gzip), secrets clean, Playwright 40/40. Details: `TEST_EVIDENCE.md`.
+
+### Open issues
+- Practice tab and its exercises: NOT BUILT (predictions link to the placeholder).
+- Story uses the HTTP session's connection A only when HTTP is chosen (connection B is in Lab's session panel).
+- The 3D shell list label can clip at the stage's right edge in Overview when the packet sits at the receiver.
+- Initial bundle 149.19 kB gzip is 0.8 kB under its 150 kB budget: the next phase must trim or code-split before adding to it.
+- AI tutor, ARP, ICMP, RST, CLOSING, TLS: NOT BUILT.
+
+## Next phase: **11**
+
 ## Phase 09 · Cinematic motion system — COMPLETE (2026-10-26)
 
 ### Completed
@@ -20,7 +41,6 @@
 - The Canvas commits through its own React root; tests wait for the committed step (usually well under 100 ms; up to a few hundred ms under SwiftShader).
 - ARP, ICMP, RST, CLOSING, TLS, fault UI: NOT BUILT.
 
-## Next phase: **10**
 
 ## Phase 08 · 3D journey stage — COMPLETE (2026-10-26)
 

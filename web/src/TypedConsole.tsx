@@ -1,12 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // Types lines at `cps` chars/sec. Enter or click completes the current line.
 // Screen readers get each finished line once via a role=log region (never per character).
 // Parent should `key` this component by its lines to restart it.
-export function TypedConsole({ lines, cps = 55, reduced, label }: { lines: readonly string[]; cps?: number; reduced: boolean; label: string }) {
+export function TypedConsole({ lines, cps = 55, reduced, label, instant = false, onDone, testId = 'console' }: {
+  lines: readonly string[];
+  cps?: number;
+  reduced: boolean;
+  label: string;
+  /** Show everything now (e.g. the learner pressed Space). */
+  instant?: boolean;
+  onDone?: () => void;
+  testId?: string;
+}) {
   const [line, setLine] = useState(0);
   const [chars, setChars] = useState(0);
-  const done = reduced || line >= lines.length;
+  const done = reduced || instant || line >= lines.length;
   const current = lines[line] ?? '';
 
   useEffect(() => {
@@ -20,6 +29,14 @@ export function TypedConsole({ lines, cps = 55, reduced, label }: { lines: reado
         : setTimeout(() => setChars((c) => c + 1), 1000 / cps);
     return () => clearTimeout(t);
   }, [done, chars, current.length, cps]);
+
+  const doneRef = useRef(onDone);
+  useEffect(() => {
+    doneRef.current = onDone;
+  });
+  useEffect(() => {
+    if (done) doneRef.current?.();
+  }, [done]);
 
   const complete = () => {
     if (done) return;
@@ -35,7 +52,8 @@ export function TypedConsole({ lines, cps = 55, reduced, label }: { lines: reado
       tabIndex={0}
       role="region"
       aria-label={`${label}. Press Enter to complete the current line.`}
-      data-testid="console"
+      data-testid={testId}
+      data-done={done ? '' : undefined}
       onClick={complete}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -57,7 +75,7 @@ export function TypedConsole({ lines, cps = 55, reduced, label }: { lines: reado
           </p>
         )}
       </div>
-      <div className="sr-only" role="log" aria-live="polite" data-testid="console-log">
+      <div className="sr-only" role="log" aria-live="polite" data-testid={`${testId}-log`}>
         {finished.map((l, i) => (
           <p key={i}>{l}</p>
         ))}

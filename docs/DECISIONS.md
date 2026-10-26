@@ -196,3 +196,18 @@ After every Run the clock sits paused at the end (full result visible, as before
 
 ## D-058 · Camera and Reduced motion
 Follow rig: eased (power2.inOut) 0.6–1.2 s dolly on cue changes, held while a typeOn or wrap cue is showing text. Overview/Inspect jump. Reduced motion: cue progress is treated as 1 (shells switch instantly), no scramble or flyer, no camera moves, no bloom pulse; playback and stepping still work. Typing of the payload text: NOT BUILT (typeOn cues show the app write via the decoder/labels instantly).
+
+## D-059 · Story Mode architecture (2026-10-26)
+`web/src/story/questions.ts` (question list, validation, implemented-fault choice, resumable state) and `web/src/story/script.ts` (templates + `buildStory(run)`) are pure. Story answers are the same draft config Lab edits, so switching modes never loses them; Lab offers "Replay this run as a story". Beats drive existing machinery only: the playback clock (seek to the beat's event), the camera rig prop, the shared selection (layer → inspector "Key fields · this beat" with snapshot values), and the 2D journey's scope overlay. Mode and story state persist in sessionStorage; a resumed story re-simulates its saved config (deterministic). Restart story goes back to question 1 keeping the answers.
+
+## D-060 · What each chapter shows
+Encapsulation follows the first data packet (the request), Application → Physical; Physical uses the first transmit's timing (teaching view). Journey shows TCP state changes (not LISTEN), each packet's first send from an endpoint, router forwards of the request only (to keep 2–4 minutes), ACK events, deliveries, drops and retransmissions. Decapsulation uses the delivered copy at the server, outermost first. Recap: three scope beats (overlay follows), what changed vs stayed (TTLs from the transmitted frames), predictions answered by re-running the engine (TTL probe; message one byte longer → next ACK; UDP ACK count). Practice: NOT BUILT (link opens the placeholder tab).
+
+## D-061 · Keyboard ownership and typing
+While a story beat is on screen the story player owns Space/Enter/→ (first press completes the typing, the next advances) and ← (back); the playback shortcuts step aside. Questions submit with Enter in the form. Typing runs at 45 characters/second; Reduced motion shows the full text at once with a static caret (the caret otherwise fades slowly). Auto-play holds 3.5 s after typing (presentation only). The window key handler reads a ref mirror of "typed", because state seen through the listener could lag one render.
+
+## D-062 · Older e2e specs run in Lab Mode
+Story Mode is the first-run default, so specs that drive the configuration form set `sessionStorage['pj.mode'] = 'lab'` in their init script; `e2e/story.spec.ts` starts from a fresh session.
+
+## D-063 · Intro timing and e2e isolation
+The 3D chunk mounts after the boot intro, and GSAP lag smoothing is off so time-boxed motion keeps to wall time. Playwright starts its own Vite server on port 5179 and never reuses a server on another port (a different local project on 5173 was once reused).

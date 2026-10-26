@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const skipBoot = (page: Page) => page.addInitScript(() => sessionStorage.setItem('pj.booted', '1'));
+// Lab Mode: these specs drive the configuration form directly (Story Mode is the first-run default).
+const skipBoot = (page: Page) =>
+  page.addInitScript(() => {
+    sessionStorage.setItem('pj.booted', '1');
+    sessionStorage.setItem('pj.mode', 'lab');
+  });
 
 const gsapWarnings: string[] = [];
 test.beforeEach(({ page }) => {

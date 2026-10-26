@@ -1,5 +1,28 @@
 # Test Evidence
 
+## Phase 10 — 2026-10-26
+
+Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **210 passed** (11 files; new `web/src/story/story.test.ts` 9), build ok (initial **149.19 kB gzip** — 0.8 kB under the 150 kB budget; lazy 3D 282.12 kB), secrets clean, Playwright **40 passed** (new `e2e/story.spec.ts` 5; 1 worker, own port 5179).
+
+`story.test.ts`: no digits in any of the 67 templates outside placeholders (allowing IPv4/UTF-8/0x) and every key listed in `docs/STORY_SCRIPT.md`; every caption = its template filled with its values (5 fixtures); encapsulation layers app → transport → internet → link → physical and decapsulation link → internet → transport → app for same-LAN/routed × TCP/UDP and HTTP; chapters ordered; UDP journey has no state/ACK beats, TCP has SYN-SENT/SYN-RECEIVED/ESTABLISHED before the request send; routed TCP values re-derived from the A→R1 frame bytes (ports, seq 1001, ack 5001, TCP checksum, header 20, IPs, TTL 64, IPv4 checksum, total length, MACs, EtherType 0800, FCS, frame length), router hops R1 64→63 and R2 63→62, recap TTL chain from the transmitted frames, delivery "Hello" 5 B at B, first four sends SYN 1000/0, SYN-ACK 5000/1001, handshake ACK 1001/5001, request 1001/5001; fault stories show drop + retransmit (TCP) or drop + missing delivery (UDP); predictions: routed TTL 1 stops "At R1", one byte longer → ACK 1007, same-LAN UDP "still arrives at B" and "0" ACKs; routed TCP estimate between 120 and 240 s; question validation (empty, 300-byte, port 0, equal ports) and HTTP question TCP-only.
+
+E2E `story.spec.ts`: fresh session → Story pressed, exactly one question (message), typed prompt; empty message → "Enter at least 1 byte", stays; "héllo" → "6 / 256 bytes UTF-8 · 5 characters"; transport cards' contrasts; port 0 → "Ports 1–65535", stays; Back ×2 keeps "héllo". Routed TCP story walked beat by beat (all ~33): each rendered caption equals the engine-built beat (`__pj.story`), key-fields panel shown on layer beats, encapsulation and decapsulation layer orders as above, ESTABLISHED state and ACK beats present; Restart → question 1; Space completes typing then advances, ← back, Skip chapter → Journey, rail marks Journey current. UDP story: no state/ACK beats. Reduced motion: prompt and captions complete immediately. Lab mid-story: message "Ping!", routed, TCP kept, same journey step, no dirty draft; Replay as story → encapsulation; reload resumes the same beat.
+
+### Screenshot observations (Playwright, inspected)
+- `story-beat-1440.png`: rail Encapsulation 1/5 · Journey 0/19 · Decapsulation 0/4 · Recap 0/5 (first version overlapped labels → 2×2 grid fix); caption "Application · your message / Your message "Hello" is 5 bytes of UTF-8. / Its first byte is 0x48, which travels as the bits 01001000."; camera Inspect layers; inspector "KEY FIELDS · THIS BEAT — Application data 5 bytes UTF-8".
+- `story-recap-1440.png`: rail Encapsulation 5/5, Journey 19/19, Decapsulation 4/4, Recap 1/5; "Recap · process to process" typing; 2D overlay switched to Process ↔ process with the A↔B arc; decoder "B ✓ port 7007 → echo app".
+- `story-q-390.png`: first version placed the question below stage and event log → story rail now leads on phones; after fix the question sits directly under the header with input, byte count and Back/Next.
+
+### Repair log (phase 10)
+1. A template hard-coded "TTL of 1" / "reach 0" → TTL probe is a filled placeholder; wording without numbers.
+2. Test helper raced typing (clicking Next after typing finished submitted the question) → helpers click the console, which only completes typing.
+3. Space did not advance: the window key handler saw a stale "typed" → ref mirror set in onDone, handlers refreshed in a layout effect.
+4. Console click completes one line → helpers click until `data-done`.
+5. Boot intro stretched to ~4–10 s under load (failed its 4 s check): the 3D chunk now mounts after the intro, and `gsap.ticker.lagSmoothing(0)` keeps time-boxed motion on wall time (intro measured 2.28 s despite a 1.5 s main-thread stall).
+6. Raw wall-clock rate check failed under load (0.33) → exact check: wall time consumed by the loop ≤ elapsed, PT = consumed.
+7. A full run failed 40/40 with `ERR_NO_BUFFER_SPACE`: Playwright had reused another local project's Vite server on 5173 → e2e now starts its own server on 5179 (`reuseExistingServer: false`).
+8. Story beats were built on every run (two extra engine runs for predictions) → only while a story plays.
+
 ## Phase 09 — 2026-10-26
 
 Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **201 passed** (10 files; new `web/src/motion/motion.test.ts` 7), build ok (initial **140.87 kB gzip**, lazy 3D **282.09 kB gzip**), secrets clean, Playwright **35 passed** (new `e2e/motion.spec.ts` 7).

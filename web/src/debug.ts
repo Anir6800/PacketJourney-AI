@@ -13,6 +13,8 @@ export type PjDebug = {
   motion?: () => Record<string, number | boolean | string | null>;
   /** Dev/test builds only: seek the playback clock (presentation seconds). */
   seek?: (pt: number) => void;
+  /** Dev/test builds only: the current run's story beats (captions as built from engine output). */
+  story?: () => { id: string; chapter: string; kind: string; layer: string | null; text: string[] }[];
   /** Rendered 3D frames (demand rendering: should stay flat while idle). */
   frames?: number;
   /** Dev/test builds only: unique geometries referenced by the scene graph. */

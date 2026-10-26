@@ -157,14 +157,21 @@ function ScopePanel({ run, scope, ev, frame, linkId }: { run: SimRun; scope: Sco
   );
 }
 
-export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice }: {
+export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, scope: scopeProp }: {
   run: SimRun;
   index: number;
   onStep: (i: number) => void;
   selectedDevice: string | null;
   onSelectDevice: (id: string) => void;
+  /** Story recap drives the overlay; otherwise the learner picks it. */
+  scope?: Scope | undefined;
 }) {
-  const [scope, setScope] = useState<Scope>('hop');
+  const [scope, setScope] = useState<Scope>(scopeProp ?? 'hop');
+  const [lastProp, setLastProp] = useState(scopeProp);
+  if (scopeProp !== lastProp) {
+    setLastProp(scopeProp);
+    if (scopeProp) setScope(scopeProp);
+  }
   const ev = run.events[index];
   const s = run.timeline.at(index);
   const path = run.template.path;

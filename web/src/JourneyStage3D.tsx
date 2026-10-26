@@ -28,6 +28,8 @@ type Props = {
   /** Continuous rendering only while playing; on demand while paused. */
   playing: boolean;
   motion: MotionApi;
+  /** Story Mode chooses the rig per beat; Lab leaves it to the viewer. */
+  rig?: Rig | undefined;
   hidden: boolean;
   onContextLost: () => void;
   onContextRestored: () => void;
@@ -552,7 +554,13 @@ const Effects = memo(function Effects() {
 });
 
 export default function JourneyStage3D(p: Props) {
-  const [rig, setRig] = useState<Rig>('overview');
+  const [rig, setRig] = useState<Rig>(p.rig ?? 'overview');
+  // Follow the story's rig when it changes (adjust-state-during-render); the viewer can still switch afterwards.
+  const [storyRig, setStoryRig] = useState(p.rig);
+  if (p.rig !== storyRig) {
+    setStoryRig(p.rig);
+    if (p.rig) setRig(p.rig);
+  }
   const wrap = useRef<HTMLDivElement>(null);
   const [narrow, setNarrow] = useState(false);
   useLayoutEffect(() => {

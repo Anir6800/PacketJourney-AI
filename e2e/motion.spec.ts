@@ -11,7 +11,10 @@ const errors: string[] = [];
 test.beforeEach(async ({ page }) => {
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.addInitScript(() => sessionStorage.setItem('pj.booted', '1'));
+  await page.addInitScript(() => {
+    sessionStorage.setItem('pj.booted', '1');
+    sessionStorage.setItem('pj.mode', 'lab');
+  });
 });
 test.afterEach(() => {
   expect(errors.splice(0), 'console errors').toEqual([]);
@@ -76,14 +79,17 @@ test('no double speed under StrictMode; pause freezes 3D packet, GSAP timeline a
   await ready(page);
   await routedTcp(page);
   await seek(page, 0);
+  const m0 = await motion(page);
   const t0 = await page.evaluate(() => performance.now());
   await play(page);
   await page.waitForTimeout(1500);
   const [m1, t1] = await Promise.all([motion(page), page.evaluate(() => performance.now())]);
-  const rate = m1.pt / ((t1 - t0) / 1000);
-  // ≈1 on a fast machine; lower when software WebGL frames exceed the 250 ms clamp. A second loop would give ≈2.
-  expect(rate, 'PT seconds per wall second at 1×').toBeGreaterThan(0.4);
-  expect(rate).toBeLessThan(1.15);
+  // One loop never consumes more wall time than passed (a duplicated StrictMode loop would consume ≈2×),
+  // and PT = consumed × speed exactly. (Raw PT/wall rates depend on machine load under SwiftShader.)
+  const consumed = (m1.consumedMs - m0.consumedMs) / 1000;
+  expect(consumed).toBeGreaterThan(0);
+  expect(consumed).toBeLessThanOrEqual((t1 - t0) / 1000 + 0.05);
+  expect(m1.pt).toBeCloseTo(consumed, 6);
   expect(m1.loops).toBe(1);
 
   await play(page); // pause

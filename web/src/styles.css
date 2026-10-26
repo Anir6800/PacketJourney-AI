@@ -382,3 +382,23 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .ladder-ack text.svg-mono { fill: var(--c-success); }
 .hidden-pause { color: var(--c-link); }
 .dock .scrub { flex: 1 1 200px; min-width: 140px; }
+
+/* Story Mode (phase 10): slow-fading caret, static under Reduced motion */
+@keyframes caret-fade { from { opacity: 1; } to { opacity: 0.25; } }
+.caret { animation: caret-fade 1.2s ease-in-out infinite alternate; }
+[data-motion='reduced'] .caret { animation: none; }
+.story { display: grid; gap: 10px; }
+.story-answer { display: grid; gap: 6px; }
+.story-cards { display: grid; gap: 8px; }
+.story-card { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--c-hairline); background: var(--c-scrim); color: var(--c-text); cursor: pointer; }
+.story-card[aria-checked='true'] { border-color: var(--c-transport); box-shadow: inset 3px 0 0 var(--c-transport); }
+.story-card:focus-visible { outline: 2px solid var(--c-transport); outline-offset: 2px; }
+.story-rail { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; font-size: 0.72rem; }
+.story-rail li { grid-template-columns: 1fr auto; align-items: baseline; }
+.story-rail li { display: grid; gap: 1px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--c-hairline); color: var(--c-muted); }
+.story-rail li[data-state='done'] { color: var(--c-text); border-color: var(--c-success); }
+.story-rail li[data-state='current'] { color: var(--c-text); border-color: var(--c-transport); background: rgba(56, 189, 248, 0.08); }
+.story-predict { display: grid; gap: 6px; border-left: 3px solid var(--c-app); padding-left: 8px; }
+.story-fields .hot { color: var(--c-text); background: rgba(56, 189, 248, 0.1); }
+/* On phones the story leads: the one question/beat comes before the stage. */
+@media (max-width: 768px) { .rail-story { order: -2; } }
