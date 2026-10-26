@@ -667,7 +667,7 @@ export function App() {
 
   return (
     <MotionContext.Provider value={mo}>
-    <div className="app" ref={root} data-chrome-idle={chromeIdle} onKeyDown={(e) => e.key === 'Escape' && drawerOpen && setDrawerOpen(false)}>
+    <div className="app" ref={root} data-chrome-idle={chromeIdle} data-fullstage={webgl && tab === 'journey'} onKeyDown={(e) => e.key === 'Escape' && drawerOpen && setDrawerOpen(false)}>
       <p className="sr-only" aria-live="polite" data-testid="announcer">
         {curEv ? `Step ${journeyIndex + 1}: ${curEv.tag}. ${explain(curEv)}` : ''}
       </p>
@@ -791,6 +791,8 @@ export function App() {
                       }}
                     /></Suspense>
                   )}
+                  {/* Full-stage (wide screens): the 3D canvas is a fixed backdrop; this window lets it show through. */}
+                  <div className="viewport-hole" aria-hidden="true" />
                   <div className="viewport">
                     {webglWanted && (
                       <div className="viewport-3d" hidden={contextLost}>

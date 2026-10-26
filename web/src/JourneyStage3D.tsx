@@ -465,11 +465,11 @@ function BudgetWatch({ onMiss }: { onMiss: () => void }) {
 // ---------- labels: plain DOM in the main React tree, positioned by projecting 3D anchors each rendered frame ----------
 type Label = { key: string; pos: Vec3; className: string; content: ReactNode; text: string };
 
-function labelsFor(model: SceneModel, rig: Rig): Label[] {
+function labelsFor(model: SceneModel, rig: Rig, selDevice: string | null): Label[] {
   const out: Label[] = [];
   for (const d of model.devices) out.push({ key: `d-${d.id}`, pos: d.labelPos, className: 'label3d-device', content: d.label, text: d.label });
   for (const l of model.links) out.push({ key: `l-${l.id}`, pos: l.labelPos, className: 'label3d-link', content: l.label, text: l.label });
-  for (const i of model.ifaces) out.push({ key: `i-${i.device}.${i.iface}`, pos: i.position, className: 'label3d-iface', content: i.label, text: i.label });
+  for (const i of model.ifaces) out.push({ key: `i-${i.device}.${i.iface}`, pos: i.position, className: `label3d-iface${selDevice === i.device ? ' is-selected' : ''}`, content: i.label, text: i.label });
   if (model.notice) {
     const d = model.devices.find((x) => x.id === model.notice?.device);
     if (d) out.push({ key: 'notice', pos: [d.position[0], 2.35, d.position[2]], className: `label3d-notice label3d-${model.notice.tone}`, content: model.notice.text, text: model.notice.text });
@@ -694,7 +694,7 @@ export default function JourneyStage3D(p: Props) {
   const selDevice = p.selected.kind === 'device' ? p.selected.id : null;
   const active = model.links.find((l) => l.id === model.packet?.onLink);
 
-  const labels = useMemo(() => labelsFor(model, rig), [model, rig]);
+  const labels = useMemo(() => labelsFor(model, rig, selDevice), [model, rig, selDevice]);
   const labelLayer = useRef<HTMLDivElement>(null);
   useEffect(() => () => pointerOff(), []);
 

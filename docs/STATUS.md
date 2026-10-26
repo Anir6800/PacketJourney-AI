@@ -24,7 +24,7 @@
 - Upstream `THREE.Clock` deprecation warning persists. Scoped protocol omissions are unchanged (see phase 15).
 
 ### Follow-up fix (same day)
-- 3D showed only once: a cleanup context loss from the unmounting R3F canvas was treated as a GPU failure (D-084). Fixed, plus an automatic canvas remount after an unrestored real loss and a declutter pass. Checks run: typecheck, lint, build, `check:monochrome`. Browser tests were **not rerun** for this follow-up, at the user's request.
+- 3D showed only once: a cleanup context loss from the unmounting R3F canvas was treated as a GPU failure (D-084). Fixed, plus an automatic canvas remount after an unrestored real loss and a declutter pass. Checks run: typecheck, lint, build, `check:monochrome`. Then the full-stage 3D layout on wide screens (D-085). Browser tests were **not rerun** for these follow-ups, at the user's request; existing e2e assertions on 3D interface-label visibility and stage geometry may need updating.
 
 ## Next phase: **18**
 
