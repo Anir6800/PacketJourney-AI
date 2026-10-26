@@ -12,7 +12,7 @@
 `npm run verify`: typecheck 0, lint 0, vitest 168/168, build ok (129.51 kB gzip initial), secrets clean, Playwright 20/20. Details: `TEST_EVIDENCE.md`.
 
 ### Open issues
-- Not a Git repository → no checkpoint.
+- Git checkpoint: commit 3fb1ce8 (re-verified 2026-10-26: verify green, vitest 168/168, Playwright 20/20).
 - ARP exchange, ICMP (Time Exceeded, Port/Destination Unreachable), TCP close/RST, fault UI, cue builder, GSAP master timeline, playback clock, 3D journey: NOT BUILT.
 - WebGL context-loss and hidden-tab drift still untested.
 
