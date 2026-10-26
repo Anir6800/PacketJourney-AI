@@ -608,7 +608,8 @@ html[data-motion='reduced'] .glass { background-image: none; }
   .app[data-fullstage='true'] .stage { background: none; border-color: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overflow: visible; min-height: 0; }
   .app[data-fullstage='true'] .grid-bg { display: none; }
   /* Empty layout boxes let the pointer through to the scene (orbit/select); real chrome stays interactive. */
-  .app[data-fullstage='true'] { pointer-events: none; }
+  /* body and #root sit above the z-index -1 canvas too, so they must also let the pointer through. */
+  :is(body, #root):has(.app[data-fullstage='true']), .app[data-fullstage='true'] { pointer-events: none; }
   .app[data-fullstage='true'] :is(.float-bar > *, .side-left, .inspector, .dock, .help, .viewport) { pointer-events: auto; }
   .app[data-fullstage='true'] .stage3d-bar { top: 16px; left: 50%; right: auto; transform: translateX(-50%); justify-content: center; }
   .app[data-fullstage='true'] .cue-overlay { left: calc(50% - 210px); bottom: 96px; }
