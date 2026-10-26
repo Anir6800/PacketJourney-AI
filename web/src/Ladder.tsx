@@ -24,14 +24,17 @@ export function Ladder({ run, cues, reduced }: { run: SimRun; cues: Cue[]; reduc
     const out: Arrow[] = [];
     for (const [pid, s] of spans) {
       const kind = run.timeline.final.packets[pid]?.kind ?? '';
-      const enc = run.events.find((e) => e.packetId === pid && e.tag === 'encap:transport');
+      const retx = pid.includes('#') ? ' · retransmission' : '';
+      // Retransmissions (p5#r1) reuse the original frame, so their header values come from the original packet.
+      const base = pid.split('#')[0] ?? pid;
+      const enc = run.events.find((e) => e.packetId === base && e.tag === 'encap:transport');
       const seg = enc?.bytes ?? [];
       const label = tcp
         ? `${flagNames(seg[13] ?? 0)} seq ${enc?.explainArgs.seq ?? '?'} ack ${enc?.explainArgs.ack ?? '?'}${(enc?.explainArgs.consumes ?? 0) && !/SYN|FIN/.test(flagNames(seg[13] ?? 0)) ? ` · ${enc?.explainArgs.consumes} B` : ''}`
         : `UDP ${enc?.explainArgs.bytes ?? '?'} B`;
       const lost = s.to === '';
       const y = 30 + out.length * ROW;
-      out.push({ pid, y, fromLeft: s.from === client, label, ack: ACK_KINDS.has(kind), lost, len: Math.hypot((XR - XL) * (lost ? 0.5 : 1), ROW * 0.6) });
+      out.push({ pid, y, fromLeft: s.from === client, label: label + retx, ack: ACK_KINDS.has(kind), lost, len: Math.hypot((XR - XL) * (lost ? 0.5 : 1), ROW * 0.6) });
     }
     return out;
   }, [run, cues, client, server, tcp]);

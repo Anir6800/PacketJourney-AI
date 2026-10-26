@@ -1,5 +1,23 @@
 # Status
 
+## Phase 11 · Fault lab — COMPLETE (2026-10-26)
+
+### Completed
+- Engine: targeted one-shot `drop` / `delay` / `corrupt` (wire, transport) faults by packet kind, attempt and hop; `fault:*` events, `drop:fault` at the next receiver, corruption after FCS (or with recomputed FCS in transport mode); `appBytesSent` vs unique `deliveredBytes`; timer events carry the packet id; validation forbids handshake/teardown targets, UDP ACK targets, out-of-path hops, attempts beyond the retry cap and out-of-segment offsets.
+- Lab fault editor (lazy chunk) with the validation-order explanation and simplified-policy note; cause-chain chips (fault → drop/reject → timer → retry → duplicate → delivery/give-up) under the stage in 2D and 3D.
+- Presentation: 3D shard fracture + "DROPPED · simulated", bit-flip glitch ≤ 300 ms, RTO countdown ring around senders, duplicate tag; 2D notice, RTO ring, pink flipped byte; Reduced-motion equivalents.
+- Ladder labels retransmissions from the original packet.
+
+### Commands and results
+`npm run verify` exit 0: typecheck 0, lint 0, vitest 222/222, build ok (initial 149.03 kB gzip incl. shared chunks; lazy 3D 282.89 kB), secrets clean, Playwright 44/44. Details: `TEST_EVIDENCE.md`.
+
+### Open issues
+- Fault targeting by raw event id is not offered (targets use packet kind/attempt/hop, which exist before a run).
+- RTO labels can clip at the 3D stage's left edge for the client in Overview.
+- Zero window, congestion control, handshake/teardown faults, duplication/reordering as standalone faults: NOT BUILT.
+
+## Next phase: **12**
+
 ## Phase 10 · Story Mode — COMPLETE (2026-10-26)
 
 ### Completed
@@ -19,7 +37,6 @@
 - Initial bundle 149.19 kB gzip is 0.8 kB under its 150 kB budget: the next phase must trim or code-split before adding to it.
 - AI tutor, ARP, ICMP, RST, CLOSING, TLS: NOT BUILT.
 
-## Next phase: **11**
 
 ## Phase 09 · Cinematic motion system — COMPLETE (2026-10-26)
 

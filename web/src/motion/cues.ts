@@ -4,7 +4,7 @@ import type { SimulationEvent } from '@packetjourney/shared';
 // Virtual time (VT) comes only from the engine. A cue whose VT span is zero still gets PT so it can be
 // seen: that PT is a presentation-only teaching hold, labelled in the UI and never counted in metrics.
 
-export type CueKind = 'typeOn' | 'wrap' | 'unwrap' | 'transmit' | 'hop' | 'ack' | 'drop' | 'retransmit' | 'state';
+export type CueKind = 'typeOn' | 'wrap' | 'unwrap' | 'transmit' | 'hop' | 'ack' | 'drop' | 'retransmit' | 'fault' | 'state';
 
 export type Cue = {
   cueId: string;
@@ -32,6 +32,7 @@ export const CUE_PT: Record<CueKind, number> = {
   ack: 0.4,
   drop: 0.8,
   retransmit: 0.6,
+  fault: 0.6,
   state: 0.3,
 };
 
@@ -44,6 +45,7 @@ export function kindOf(e: Pick<SimulationEvent, 'tag' | 'type'>): CueKind {
   if (e.type === 'arrive' || e.type === 'forward' || e.type === 'route') return 'hop';
   if (t === 'ack' || t === 'ack:duplicate') return 'ack';
   if (t === 'tcp:retransmit') return 'retransmit';
+  if (e.type === 'fault') return 'fault';
   if (e.type === 'drop' || t === 'socket:none' || t === 'tcp:ignored') return 'drop';
   return 'state';
 }

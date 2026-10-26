@@ -4,7 +4,7 @@ import { Segmented } from './ui.tsx';
 import { LAYERS, LayerGlyph, type LayerId } from './layers.tsx';
 import { fmtTime } from './format.ts';
 import { TcpCards } from './TcpCards.tsx';
-import { depthOf } from './scene/model.ts';
+import { depthOf, type SceneNotice, type SceneTimer } from './scene/model.ts';
 
 // 2D SVG journey: the permanent WebGL fallback. Renders only snapshot + event data.
 
@@ -15,18 +15,31 @@ const KIND_LABEL: Record<string, string> = {
   'fin-client': 'FIN', 'ack-fin-client': 'ACK', 'fin-server': 'FIN', 'ack-fin-server': 'ACK',
 };
 
-function hexRun(b: readonly number[], max = 48) {
-  const s = b.slice(0, max).map((x) => hex(x)).join(' ');
-  return b.length > max ? `${s} … +${b.length - max} B` : s;
+/** Hex bytes; `flip` (absolute frame index) glows pink when it falls in this run of bytes starting at `base`. */
+function hexRun(b: readonly number[], base: number, flip: number | null, max = 48) {
+  const shown = b.slice(0, max);
+  const more = b.length > max ? ` … +${b.length - max} B` : '';
+  if (flip === null || flip < base || flip >= base + shown.length) return shown.map((x) => hex(x)).join(' ') + more;
+  return (
+    <>
+      {shown.map((x, i) => (
+        <span key={i} className={base + i === flip ? 'bit-flip' : undefined} data-testid={base + i === flip ? 'bit-flip' : undefined}>
+          {i ? ' ' : ''}
+          {hex(x)}
+        </span>
+      ))}
+      {more}
+    </>
+  );
 }
 
-type Card = { layer: LayerId; title: string; head: number[]; tail?: number[] };
+type Card = { layer: LayerId; title: string; head: number[]; base: number; tail?: number[]; tailBase?: number };
 
 function cardsFor(ev: SimulationEvent, s: SimState): Card[] {
   const depth = depthOf(ev.tag);
   if (!depth) return [];
   const p = ev.packetId ? s.packets[ev.packetId] : undefined;
-  if (!p) return ev.bytes ? [{ layer: 'app', title: `Application data · ${ev.bytes.length} B`, head: ev.bytes }] : [];
+  if (!p) return ev.bytes ? [{ layer: 'app', title: `Application data · ${ev.bytes.length} B`, head: ev.bytes, base: -1 }] : [];
   const frame = Uint8Array.from(p.current);
   const ip = packetFromFrame(frame);
   const ihl = ((ip[0] ?? 0x45) & 0x0f) * 4;
@@ -35,15 +48,15 @@ function cardsFor(ev: SimulationEvent, s: SimState): Card[] {
   const l4 = tcp ? ((seg[12] ?? 0x50) >> 4) * 4 : 8;
   const payload = [...seg.slice(l4)];
   const all: Card[] = [
-    { layer: 'link', title: `Ethernet II · 14 B header + ${frame.length - 14 - ip.length} B pad/FCS`, head: [...frame.slice(0, 14)], tail: [...frame.slice(14 + ip.length)] },
-    { layer: 'internet', title: `IPv4 · ${ihl} B header`, head: [...ip.slice(0, ihl)] },
-    { layer: 'transport', title: `${tcp ? 'TCP' : 'UDP'} · ${l4} B header`, head: [...seg.slice(0, l4)] },
-    { layer: 'app', title: `Application data · ${payload.length} B`, head: payload },
+    { layer: 'link', title: `Ethernet II · 14 B header + ${frame.length - 14 - ip.length} B pad/FCS`, head: [...frame.slice(0, 14)], base: 0, tail: [...frame.slice(14 + ip.length)], tailBase: 14 + ip.length },
+    { layer: 'internet', title: `IPv4 · ${ihl} B header`, head: [...ip.slice(0, ihl)], base: 14 },
+    { layer: 'transport', title: `${tcp ? 'TCP' : 'UDP'} · ${l4} B header`, head: [...seg.slice(0, l4)], base: 14 + ihl },
+    { layer: 'app', title: `Application data · ${payload.length} B`, head: payload, base: 14 + ihl + l4 },
   ];
   return all.slice(4 - depth);
 }
 
-function LayerCards({ cards }: { cards: Card[] }) {
+function LayerCards({ cards, flip }: { cards: Card[]; flip: number | null }) {
   if (!cards.length) return null;
   const nest = (i: number): React.ReactNode => {
     const c = cards[i];
@@ -54,10 +67,10 @@ function LayerCards({ cards }: { cards: Card[] }) {
           <LayerGlyph layer={c.layer} size={14} /> <span className="code mono">{LAYERS[c.layer].code}</span> {c.title}
         </div>
         <p className="lcard-bytes mono" data-testid={`lbytes-${c.layer}`}>
-          {hexRun(c.head)}
+          {hexRun(c.head, c.base, flip)}
         </p>
         {nest(i + 1)}
-        {c.tail && c.tail.length > 0 && <p className="lcard-bytes mono lcard-tail">{hexRun(c.tail)}</p>}
+        {c.tail && c.tail.length > 0 && <p className="lcard-bytes mono lcard-tail">{hexRun(c.tail, c.tailBase ?? -1, flip)}</p>}
       </div>
     );
   };
@@ -157,7 +170,7 @@ function ScopePanel({ run, scope, ev, frame, linkId }: { run: SimRun; scope: Sco
   );
 }
 
-export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, scope: scopeProp }: {
+export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, scope: scopeProp, fx }: {
   run: SimRun;
   index: number;
   onStep: (i: number) => void;
@@ -165,6 +178,8 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, 
   onSelectDevice: (id: string) => void;
   /** Story recap drives the overlay; otherwise the learner picks it. */
   scope?: Scope | undefined;
+  /** Fault presentation from the scene model (same facts as the 3D stage). */
+  fx?: { timers: SceneTimer[]; notice: SceneNotice | null } | undefined;
 }) {
   const [scope, setScope] = useState<Scope>(scopeProp ?? 'hop');
   const [lastProp, setLastProp] = useState(scopeProp);
@@ -286,6 +301,25 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, 
             </text>
           </g>
         )}
+        {fx?.timers.map((tm) => {
+          // Retransmission timer ring around the sender; lit share = remaining / total at this event's virtual time.
+          const rem = Math.max(0, Math.min(tm.totalMs, tm.deadlineMs - ev.virtualTimeMs));
+          const C = 2 * Math.PI * 44;
+          return (
+            <g key={tm.device} data-testid={`rto-ring-${tm.device}`} data-remaining={rem}>
+              <circle cx={xOf(tm.device)} cy={92} r={44} fill="none" stroke="var(--c-link)" strokeWidth={3} strokeDasharray={`${(C * rem) / tm.totalMs} ${C}`}
+                transform={`rotate(-90 ${xOf(tm.device)} 92)`} />
+              <text x={xOf(tm.device)} y={146} textAnchor="middle" className="svg-label">
+                RTO {rem.toFixed(3)} ms left
+              </text>
+            </g>
+          );
+        })}
+        {fx?.notice && (
+          <text x={xOf(fx.notice.device)} y={60} textAnchor="middle" className={`svg-notice svg-notice-${fx.notice.tone}`} data-testid="svg-notice">
+            {fx.notice.text}
+          </text>
+        )}
       </svg>
 
       <div className="journey-bar">
@@ -318,7 +352,7 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, 
       )}
       <ScopePanel run={run} scope={scope} ev={ev} frame={pkt?.current ?? null} linkId={curLink?.id ?? null} />
       {run.config.protocol === 'TCP' && <TcpCards run={run} s={s} ev={ev} />}
-      <LayerCards cards={cardsFor(ev, s)} />
+      <LayerCards cards={cardsFor(ev, s)} flip={pkt?.corrupt?.frameByte ?? null} />
     </section>
   );
 }

@@ -211,3 +211,18 @@ Story Mode is the first-run default, so specs that drive the configuration form 
 
 ## D-063 · Intro timing and e2e isolation
 The 3D chunk mounts after the boot intro, and GSAP lag smoothing is off so time-boxed motion keeps to wall time. Playwright starts its own Vite server on port 5179 and never reuses a server on another port (a different local project on 5173 was once reused).
+
+## D-064 · Targeted one-shot faults (2026-10-26)
+`drop`, `delay` and `corrupt` replace the never-built placeholder fault kinds (`bitflip`, `duplicate`, `reorder`, `ttl-expiry`; duplication/reordering stay NOT BUILT except as consequences of delay). A target is (packet kind, attempt, hop): the kind fixes the direction, attempt 0 is the original and n the n-th retransmission, hop is the link index along that packet's own path. Each fault is consumed by the first matching transmission; a fault that never matches changes nothing. Count-based `loss` stays (earlier recovery tests and the Story preset). The Lab UI selects by these fields rather than by raw event id, because packet ids only exist after a run.
+
+## D-065 · Validation order and corruption modes
+Receivers check Ethernet FCS → IPv4 header checksum → transport checksum → port. `corrupt/wire` flips the bit after the sender computed every checksum and the FCS, so the next receiver (router or host) fails the FCS and discards the frame; nothing above runs. `corrupt/transport` (advanced) flips a protected transport byte and recomputes the outer FCS: link and IPv4 checks pass, routers forward it unchanged, and only the receiving host's transport checksum rejects it. With UDP checksum off, such corruption is delivered undetected (honest outcome). Offsets count from the first transport header byte; out-of-range offsets are rejected by validation (raw mode) or reported as `fault:skipped` (generated HTTP sizes).
+
+## D-066 · Fault targeting scope and timer policy
+Targets are limited to post-establishment kinds: TCP data/ack/response/response-ack, UDP data/response. SYN, FIN and their ACKs are rejected by validation (the run cannot start), so faults cannot silently hit the handshake/teardown. Retransmission stays the simplified policy (fixed initial RTO, ×2 backoff, generation-token cancellation, max retries → give-up), labelled not RFC 6298 everywhere it appears. Retries reuse the original frame; duplicates are discarded and re-ACKed; `appBytesSent` counts every attempt and `deliveredBytes` unique bytes. Zero window and congestion control: NOT BUILT.
+
+## D-067 · Failure presentation
+Scene model facts: `dropped`, `glitch`, `corruptByte`, armed `timers`, `notice`. 3D: deterministic golden-spiral shard burst at the drop point (Reduced: shards still, capsule dimmed), shell glitch only during the first 300 ms of the 0.6 s fault cue (none under Reduced), RTO dot ring whose lit share is remaining/total in virtual time, projected DOM tags. 2D: the same notice text, an SVG RTO ring at the event's virtual time, and the flipped byte highlighted pink in the layer cards. Cause chains (`faults/chain.ts`) link the fault to the next drop/reject, timer expiry, retransmission, duplicate and delivery/give-up events; the chips are DOM, so they work in 2D and 3D.
+
+## D-068 · Bundle split
+Lab-only UI (ConfigForm, FaultEditor), the Headers view and the HTTP session panel are lazy chunks; initial JS 148.99 kB gzip (entry + shared chunks) within the 150 kB budget.

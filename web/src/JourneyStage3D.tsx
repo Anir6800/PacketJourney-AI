@@ -174,9 +174,9 @@ function BitStream({ l, motion, step, reduced }: { l: SceneLink | null; motion: 
   );
 }
 
-function Shell({ layer, present, label, exploded, reduced, selected, onSelect, motion, step, adding, releasing, ttlFlash }: {
+function Shell({ layer, present, label, exploded, reduced, selected, onSelect, motion, step, adding, releasing, ttlFlash, glitch, dropped }: {
   layer: ShellLayer; present: boolean; label: string; exploded: boolean; reduced: boolean; selected: boolean; onSelect: (s: Selection) => void;
-  motion: MotionApi; step: number; adding: boolean; releasing: boolean; ttlFlash: boolean;
+  motion: MotionApi; step: number; adding: boolean; releasing: boolean; ttlFlash: boolean; glitch: boolean; dropped: boolean;
 }) {
   const mesh = useRef<Mesh>(null);
   const mat = useRef<MeshStandardMaterial>(null);
@@ -202,6 +202,10 @@ function Shell({ layer, present, label, exploded, reduced, selected, onSelect, m
       scale = r * (1 + 0.15 * e);
       opacity = shellOpacity(layer) * (1 - e);
     }
+    // Drop: the capsule fades as it fractures (Reduced: dims at once). Corruption: ≤ 300 ms glitch (half of the 0.6 s cue).
+    if (dropped) opacity *= reduced ? 0.3 : 1 - e;
+    const jitter = glitch && !reduced && p < 0.5 ? Math.sin(p * 90 + SHELL_RADIUS[layer] * 50) * 0.04 : 0;
+    o.position.set(jitter, -jitter * 0.6, 0);
     o.scale.setScalar(scale);
     m.opacity = opacity;
     m.emissiveIntensity = ttlFlash && layer === 'internet' ? glow + 1.8 * Math.sin(Math.PI * p) : glow;
@@ -269,6 +273,7 @@ function Packet({ model, rig, reduced, selected, onSelect, motion }: {
   });
   return (
     <group ref={group} position={p?.position ?? [0, -50, 0]} visible={Boolean(p)} scale={ack ? 0.62 : 1} userData={{ pj: { type: 'packet', id: p?.id ?? null, ack } }}>
+      <Fracture active={Boolean(p?.dropped)} motion={motion} step={model.step} reduced={reduced} />
       {/* ACKs travel back as a smaller capsule with a distinct ring. */}
       <mesh visible={ack} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.42, 0.025, 8, 32]} />
@@ -289,6 +294,8 @@ function Packet({ model, rig, reduced, selected, onSelect, motion }: {
           adding={p?.adding === layer}
           releasing={p?.releasing === layer}
           ttlFlash={Boolean(p?.ttlFlash)}
+          glitch={Boolean(p?.glitch)}
+          dropped={Boolean(p?.dropped)}
         />
       ))}
     </group>
@@ -362,6 +369,68 @@ function CameraRig({ rig, model, motion, reduced }: { rig: Rig; model: SceneMode
   return null;
 }
 
+const SHARDS = 28;
+const shardDirs = Array.from({ length: SHARDS }, (_, i) => {
+  // Deterministic directions on a sphere (golden-angle spiral): same burst on every replay.
+  const y = 1 - (2 * (i + 0.5)) / SHARDS;
+  const r = Math.sqrt(1 - y * y);
+  const a = i * 2.39996;
+  return new Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
+});
+
+/** Drop: the capsule fractures into shards at the drop point (presentation only; Reduced: shards stay close and still). */
+function Fracture({ active, motion, step, reduced }: { active: boolean; motion: MotionApi; step: number; reduced: boolean }) {
+  const mesh = useRef<InstancedMesh>(null);
+  useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
+    m.visible = active;
+    if (!active) return;
+    const { p } = cueProgress(motion, step, reduced);
+    const d = reduced ? 0.4 : 0.15 + 1.1 * easeOut(p);
+    for (let i = 0; i < SHARDS; i++) {
+      const v = shardDirs[i];
+      if (v) m.setMatrixAt(i, tmpM.makeTranslation(v.x * d, v.y * d, v.z * d));
+    }
+    m.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, SHARDS]} visible={false} frustumCulled={false} userData={{ pj: { type: 'fracture' } }}>
+      <tetrahedronGeometry args={[0.05]} />
+      <meshStandardMaterial color={color.danger} emissive={color.danger} emissiveIntensity={1.6} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
+const RING_DOTS = 32;
+/** Retransmission timer: dots around the sender, the lit share = remaining / total in virtual time (from the clock). */
+function TimerRing({ device, timer, motion }: { device: SceneDevice; timer: { deadlineMs: number; totalMs: number } | null; motion: MotionApi }) {
+  const mesh = useRef<InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const m = mesh.current;
+    if (!m) return;
+    for (let i = 0; i < RING_DOTS; i++) {
+      const a = (i / RING_DOTS) * Math.PI * 2;
+      m.setMatrixAt(i, tmpM.makeTranslation(Math.sin(a) * 0.85, 0.02, Math.cos(a) * 0.85));
+    }
+    m.instanceMatrix.needsUpdate = true;
+  }, []);
+  useFrame(() => {
+    const m = mesh.current;
+    if (!m) return;
+    m.visible = Boolean(timer);
+    if (!timer) return;
+    const remaining = Math.max(0, Math.min(timer.totalMs, timer.deadlineMs - motion.pos.current.vt));
+    m.count = Math.ceil((RING_DOTS * remaining) / timer.totalMs);
+  });
+  return (
+    <instancedMesh ref={mesh} position={device.position} args={[undefined, undefined, RING_DOTS]} visible={false} userData={{ pj: { type: 'rto-ring', device: device.id } }}>
+      <sphereGeometry args={[0.04, 8, 8]} />
+      <meshStandardMaterial color={color.link} emissive={color.link} emissiveIntensity={1.4} />
+    </instancedMesh>
+  );
+}
+
 /** Demand rendering: every clock change (seek, scrub, step) requests a frame, since cue progress lives in a ref. */
 function ClockFrames({ motion }: { motion: MotionApi }) {
   const invalidate = useThree((s) => s.invalidate);
@@ -388,6 +457,15 @@ function labelsFor(model: SceneModel, rig: Rig): Label[] {
   for (const d of model.devices) out.push({ key: `d-${d.id}`, pos: d.labelPos, className: 'label3d-device', content: d.label, text: d.label });
   for (const l of model.links) out.push({ key: `l-${l.id}`, pos: l.labelPos, className: 'label3d-link', content: l.label, text: l.label });
   for (const i of model.ifaces) out.push({ key: `i-${i.device}.${i.iface}`, pos: i.position, className: 'label3d-iface', content: i.label, text: i.label });
+  if (model.notice) {
+    const d = model.devices.find((x) => x.id === model.notice?.device);
+    if (d) out.push({ key: 'notice', pos: [d.position[0], 2.35, d.position[2]], className: `label3d-notice label3d-${model.notice.tone}`, content: model.notice.text, text: model.notice.text });
+  }
+  for (const tm of model.timers) {
+    const d = model.devices.find((x) => x.id === tm.device);
+    const text = `RTO ${tm.totalMs} ms · deadline ${tm.deadlineMs} ms · simplified policy`;
+    if (d) out.push({ key: `rto-${tm.device}`, pos: [d.position[0], -1.75, d.position[2]], className: 'label3d-rto', content: text, text });
+  }
   const pk = model.packet;
   if (pk?.bitStream) {
     const m = model.links.find((l) => l.id === pk.onLink)?.points[1];
@@ -455,6 +533,8 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
       let bitStream = false;
       let step = -1;
       let packetPos: number[] = [];
+      let fracture = false;
+      const rings: { device: string; lit: number }[] = [];
       scene.traverse((o) => {
         const pj = pjOf(o);
         if (!pj) return;
@@ -467,6 +547,8 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
         }
         if (pj.type === 'packet') packetPos = o.getWorldPosition(new Vector3()).toArray().map((x) => Math.round(x * 1e4) / 1e4);
         if (pj.type === 'bitstream' && o.visible) bitStream = true;
+        if (pj.type === 'fracture' && o.visible) fracture = true;
+        if (pj.type === 'rto-ring' && o.visible) rings.push({ device: pj.device as string, lit: (o as InstancedMesh).count });
       });
       // Labels as rendered (projected DOM in the main tree), not a closure over the last model.
       const labels = Array.from(gl.domElement.closest('.stage3d')?.querySelectorAll('.labels3d .label3d') ?? [], (e) => e.textContent ?? '');
@@ -480,6 +562,9 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
         presentShells: shells.filter((s) => s.present).map((s) => ({ layer: s.layer, color: s.color, label: s.label })),
         shellVisuals: shells.map((s) => ({ layer: s.layer, visible: s.visible, opacity: s.opacity, scale: s.scale })),
         packetPos,
+        fracture,
+        rings,
+        notice: model.notice,
         bitStream,
         labels,
         rig,
@@ -648,6 +733,11 @@ export default function JourneyStage3D(p: Props) {
           {model.devices.flatMap((d) => d.ports.map((pt) => <Instance key={`${d.id}.${pt.iface}`} position={pt.position} />))}
         </Instances>
         <BitStream l={model.packet?.bitStream && active ? active : null} motion={p.motion} step={model.step} reduced={p.reduced} />
+        {model.devices
+          .filter((d) => d.kind === 'host')
+          .map((d) => (
+            <TimerRing key={d.id} device={d} timer={model.timers.find((x) => x.device === d.id) ?? null} motion={p.motion} />
+          ))}
         <Packet model={model} rig={rig} reduced={p.reduced} selected={p.selected} onSelect={p.onSelect} motion={p.motion} />
 
         <OrbitControls makeDefault enableDamping dampingFactor={0.12} minDistance={1.5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />

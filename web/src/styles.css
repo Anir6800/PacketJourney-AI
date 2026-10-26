@@ -402,3 +402,23 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .story-fields .hot { color: var(--c-text); background: rgba(56, 189, 248, 0.1); }
 /* On phones the story leads: the one question/beat comes before the stage. */
 @media (max-width: 768px) { .rail-story { order: -2; } }
+
+/* Fault lab (phase 11) */
+.bit-flip { color: var(--c-physical); background: rgba(244, 114, 182, 0.18); border-radius: 2px; box-shadow: 0 0 6px var(--c-physical); }
+[data-motion='reduced'] .bit-flip { box-shadow: none; }
+.svg-notice { font: 700 11px 'JetBrains Mono', monospace; }
+.svg-notice-danger { fill: var(--c-danger); }
+.svg-notice-info { fill: var(--c-success); }
+.label3d-notice { font-weight: 700; }
+.label3d-danger { color: var(--c-danger); border-color: var(--c-danger); }
+.label3d-info { color: var(--c-success); border-color: var(--c-success); }
+.label3d-rto { color: var(--c-link); }
+.fault-chain { display: grid; gap: 6px; }
+.chain { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chain li { display: flex; align-items: center; gap: 4px; opacity: 0.55; }
+.chain li[data-reached] { opacity: 1; }
+.chain-chip { font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--c-hairline); background: var(--c-scrim); color: var(--c-text); cursor: pointer; }
+.chain li[data-current] .chain-chip { border-color: var(--c-danger); }
+.chain-arrow { color: var(--c-danger); }
+.fault-editor { display: grid; gap: 6px; }
+.fault-list { margin: 0; padding-left: 16px; }

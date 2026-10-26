@@ -1,4 +1,6 @@
-import { checkPayload } from '../bytes.ts';
+import { checkPayload, utf8 } from '../bytes.ts';
+import type { Fault } from '../schemas.ts';
+import { TEMPLATES } from './topology.ts';
 import type { SimConfig } from './simulate.ts';
 
 // Input validation for user-editable scenario fields. Some rules are demo restrictions that go
@@ -76,5 +78,37 @@ export function validateSimConfig(c: SimConfig): ConfigIssue[] {
     if (!out.some((i) => i.field.endsWith('.mac')) && a.mac.toLowerCase() === b.mac.toLowerCase())
       add('server.mac', 'Client and server need different MAC addresses.');
   }
+  c.faults.forEach((f, i) => {
+    if (f.kind === 'loss') return;
+    const m = faultIssue(c, f);
+    if (m) add(`faults.${i}`, m);
+  });
   return out;
+}
+
+/** Packet kinds the fault lab may target: only after the connection is established (handshake/teardown NOT BUILT here). */
+export const FAULT_PACKETS = { TCP: ['data', 'ack', 'response', 'response-ack'], UDP: ['data', 'response'] } as const;
+
+function faultIssue(c: SimConfig, f: Exclude<Fault, { kind: 'loss' }>): string | null {
+  const { packet, attempt, hop } = f.target;
+  const allowed: readonly string[] = FAULT_PACKETS[c.protocol];
+  if (!allowed.includes(packet)) {
+    return c.protocol === 'UDP' && /ack/.test(packet)
+      ? 'UDP has no ACKs to lose.'
+      : 'Fault-lab targets start after the connection is established: SYN, FIN and their ACKs cannot be targeted (handshake/teardown faults NOT BUILT here).';
+  }
+  if (packet.startsWith('response') && c.payloadMode === 'raw' && !c.reply.enabled) return 'The reply is disabled in this run, so there is no reply (or its ACK) to target.';
+  if ((packet === 'data' || packet === 'ack') && c.payloadMode === 'raw' && c.request === '') return 'This run sends no data (no-data close), so there is nothing to target.';
+  const links = TEMPLATES[c.template].path.length - 1;
+  if (!Number.isInteger(hop) || hop < 0 || hop >= links) return `Hop must be 0–${links - 1}: this path has ${links} link(s).`;
+  if (!Number.isInteger(attempt) || attempt < 0 || attempt > c.maxRetries) return `Attempt must be 0–${c.maxRetries} (0 = the original transmission).`;
+  if (f.kind === 'delay' && !(Number.isFinite(f.delayMs) && f.delayMs > 0 && f.delayMs <= 2000)) return 'Delay must be more than 0 and at most 2000 ms (SIMULATED).';
+  if (f.kind === 'corrupt') {
+    if (!Number.isInteger(f.bit) || f.bit < 0 || f.bit > 7) return 'Bit must be 0–7.';
+    const hdr = c.protocol === 'TCP' ? 20 : 8;
+    const body = c.payloadMode === 'http' ? null : packet === 'data' ? utf8(c.request).length : packet === 'response' ? utf8(c.reply.text).length : 0;
+    // HTTP payload sizes are generated; the engine reports an out-of-range offset as a skipped fault instead.
+    if (!Number.isInteger(f.offset) || f.offset < 0 || (body !== null && f.offset >= hdr + body)) return `Offset must be within the ${body === null ? '' : `${hdr + body}-byte `}transport segment (0 = its first header byte).`;
+  }
+  return null;
 }

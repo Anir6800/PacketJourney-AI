@@ -186,3 +186,6 @@ Modelled states: CLOSED, LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED, FIN-WAIT-1
 
 ## Presentation timing (phase 09)
 Playback never changes engine output. Virtual timestamps, metrics and snapshots come from the event list; presentation time (cue slots, teaching holds, speed 0.25–2×) only decides how long each event stays on screen. Within a transmit cue the packet's position is linear in virtual time between the engine's send start and arrival.
+
+## Fault lab (phase 11)
+Targeted one-shot faults: drop, delay, corrupt (wire / transport). Validation order at every receiver: Ethernet FCS (NIC discards on failure; nothing above runs) → IPv4 header checksum → transport checksum (hosts only; routers never check it) → port. Wire corruption is caught by the FCS of the next receiver; transport-mode corruption keeps a valid outer FCS and is caught only by the host's TCP/UDP checksum (RFC 9293 §3.1, RFC 768; UDP checksum 0 = not checked over IPv4). TCP recovery uses the simplified retransmission policy (not RFC 6298); UDP has no recovery; delay is never loss. Handshake/teardown targets: NOT BUILT in the fault lab.

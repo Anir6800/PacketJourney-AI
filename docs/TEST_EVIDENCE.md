@@ -1,5 +1,23 @@
 # Test Evidence
 
+## Phase 11 — 2026-10-26
+
+Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **222 passed** (13 files; new `shared/src/sim/faults.test.ts` 11, `web/src/faults/chain.test.ts` 1), build ok (initial entry 143.67 kB + shared chunks 5.36 kB = **149.03 kB gzip**; lazy: 3D 282.89, ConfigForm 3.17, FaultEditor 1.85, HeaderView 1.40, SessionPanel 1.23), secrets clean, Playwright **44 passed** (new `e2e/faults.spec.ts` 4).
+
+`faults.test.ts` (routed unless noted): dropped data attempt 0 on hop 1 → `fault:drop`, `drop:fault` at R2, timer fire, retransmission with byte-identical frame, B delivers once, deliveredBytes 10, appBytesSent 15; lost ACK with reply disabled → retransmit, `tcp:duplicate`, re-ACK from B, one delivery (5 B); lost response-ack → one server retransmit, client delivers once; drops on attempts 0–3 → 3 retransmissions, give-up, app failed, no delivery, identical events on re-run, RTO sets 200 (SYN), 200/400/800/1600 (data); UDP drop → no timers, no retransmit, 0 delivered, 5 B sent; UDP delay 5 ms on hop 2 → delivery exactly 5 ms later, no drop tags; TCP data delayed 300 ms (> RTO) → retransmission, late original discarded as duplicate, one delivery, deterministic; UDP wire corruption → `drop:link` "FCS mismatch" at R1 with no IPv4/transport checks there, nothing at B, packet marked corrupt; TCP transport corruption with recomputed FCS → forwarded by R1 and R2, B passes link and IPv4 checks, rejects "TCP checksum mismatch", clean retransmission delivered once; SYN/SYN-ACK/handshake ACK/FIN/final-ACK targets rejected ("after the connection is established") and `simulate` throws; UDP ACK target rejected; hop 3 rejected ("Hop must be 0–2"); offset 25 rejected ("25-byte"); delay 0 rejected; unmatched fault (attempt 2) leaves the event list unchanged.
+
+E2E `faults.spec.ts`: Lab UI adds "drop data · attempt 0 · hop 1" (routed TCP) → chain "FAULT · drop (data, hop 1) → dropped before R2 → A timer expires → A retransmits → B delivers once"; at `drop:fault` the scene notice is R2 "DROPPED · simulated", fracture mounted and visible, 3D tag and 2D SVG tag shown, A's RTO ring lit in 3D and visible in 2D; same in View 2D; chain chip jumps to the retransmission. UDP same-LAN wire corruption → "BIT FLIP · simulated", one pink byte, `drop:link` caption "FCS mismatch", chain "FCS fails at B"; routed TCP transport corruption → chain "transport checksum fails at B", caption "TCP checksum mismatch". Packet options are exactly data/ack/response/response-ack; lost ACK (reply off) → chain "B discards duplicate, re-ACKs", under Reduced the notice at B "DUPLICATE · discarded, re-ACKed" in 3D and 2D, effects off, one delivery. UDP: no "Lose a TCP ACK"; delay 5 ms → "DELAYED 5 ms · simulated", two deliveries, no drop tags.
+
+### Screenshot observations (Playwright, inspected)
+- `fault-drop-1440.png` (routed TCP, mid `drop:fault` cue): red shards around the capsule above R2 with "DROPPED · simulated"; amber RTO dot rings around A and B with "RTO 200 ms · deadline 204.443… ms · simplified policy"; cause chain chips under the stage with "dropped before R2" outlined as current; 2D: "DROPPED · simulated" above R2, rings with "RTO 197.788 ms left"/"RTO 195.567 ms left"; ladder showed the retransmission as "none seq ? ack ?" → fixed (labels from the original packet, "· retransmission").
+- `fault-corrupt-1440.png` (routed TCP, `drop:link` at R1): TCP header bytes "… 00 00 03 E9 [01] 00 13 89 …" with the flipped byte pink; ladder ✕ at mid-link for the lost attempt; inspector Drops 1.
+
+### Repair log (phase 11)
+1. Retry-exhaustion test expected four timer sets; the engine correctly arms a fifth (1600 ms) whose expiry triggers give-up → expectation corrected (behaviour unchanged).
+2. `fault:*` events had no layer depth, so the byte grid (and pink byte) did not render at the corruption event → link depth for `fault:` tags.
+3. Initial bundle 153.13 kB > 150 → Lab-only UI, Headers view and session panel moved to lazy chunks (149.03 kB).
+4. Ladder retransmission label read "none seq ? ack ?" → header values from the original packet.
+
 ## Phase 10 — 2026-10-26
 
 Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **210 passed** (11 files; new `web/src/story/story.test.ts` 9), build ok (initial **149.19 kB gzip** — 0.8 kB under the 150 kB budget; lazy 3D 282.12 kB), secrets clean, Playwright **40 passed** (new `e2e/story.spec.ts` 5; 1 worker, own port 5179).

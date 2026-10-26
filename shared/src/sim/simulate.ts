@@ -1,6 +1,6 @@
-import { utf8 } from '../bytes.ts';
+import { hex, utf8 } from '../bytes.ts';
 import { cookieValue, handleHttp, httpRequest, parseHttp } from './http.ts';
-import { CRC32_RESIDUE, crc32, pseudoHeader, verifyInternetChecksum } from '../checksum.ts';
+import { CRC32_RESIDUE, crc32, fcsBytes, pseudoHeader, verifyInternetChecksum } from '../checksum.ts';
 import { encode, ethernetFrame, forwardPacket, packetFromFrame } from '../encode.ts';
 import { prng, u16 } from '../prng.ts';
 import type { Fault, Field, PacketKind, ScenarioConfig, TcpFlags } from '../schemas.ts';
@@ -92,6 +92,13 @@ const u32At = (b: Uint8Array, i: number) => (((b[i] ?? 0) << 24) >>> 0) + ((b[i 
 const macOf = (b: Uint8Array, at: number) => Array.from(b.slice(at, at + 6), (x) => x.toString(16).padStart(2, '0')).join(':');
 const ipOf = (b: Uint8Array, at: number) => Array.from(b.slice(at, at + 4)).join('.');
 const PREAMBLE_SFD = 8;
+/** Application payload bytes inside an Ethernet/IPv4/TCP-or-UDP frame. */
+function payloadLen(f: Uint8Array): number {
+  const ihl = ((f[14] ?? 0x45) & 0x0f) * 4;
+  const seg = (((f[16] ?? 0) << 8) | (f[17] ?? 0)) - ihl;
+  const hdr = f[23] === 6 ? ((f[14 + ihl + 12] ?? 0x50) >> 4) * 4 : 8;
+  return Math.max(0, seg - hdr);
+}
 const IFG = 12;
 const NO_FLAGS: TcpFlags = { ack: false, psh: false, rst: false, syn: false, fin: false };
 
@@ -157,6 +164,10 @@ export function simulate(input: SimConfig): SimRun {
   const maxNs = cfg.maxDurationMs * NS_PER_MS;
   const lossLeft = new Map<PacketKind, number>();
   for (const f of cfg.faults) if (f.kind === 'loss') lossLeft.set(f.packet, (lossLeft.get(f.packet) ?? 0) + f.count);
+  // Targeted one-shot faults (drop / delay / corrupt), each consumed by the first transmission that matches it.
+  const pending = cfg.faults.filter((f): f is Exclude<Fault, { kind: 'loss' }> => f.kind !== 'loss').map((f) => ({ ...f }));
+  /** Links already traversed per packet id (the hop index of its next transmission). */
+  const hopsDone = new Map<string, number>();
   const linkFree = new Map<string, number>();
   const lastSent = new Map<string, { pid: string; outIface: string }>();
 
@@ -362,6 +373,11 @@ export function simulate(input: SimConfig): SimRun {
     const arrivalNs = endNs + link.propagationNs;
     linkFree.set(key, endNs);
     const hop = { packetId: pid, linkId: link.id, from, to, sendStartMs: ms(now), sendEndMs: ms(endNs), arrivalMs: ms(arrivalNs) };
+    const rec = pkt(pid);
+    const hopIdx = hopsDone.get(pid) ?? 0;
+    hopsDone.set(pid, hopIdx + 1);
+    // Application bytes put on the wire by an endpoint (every attempt counts; unique delivery is `deliveredBytes`).
+    const appSent = hopIdx === 0 && (from === t.client || from === t.server) ? payloadLen(frame) : 0;
     const id = emit({
       device: from, iface: out.iface, direction: 'out', layer: 'link', type: 'transmit', tag: `hop:${from}:egress`, packetId: pid, causeId,
       bytes: [...frame],
@@ -375,11 +391,56 @@ export function simulate(input: SimConfig): SimRun {
       effects: [
         { k: 'hop', hop },
         { k: 'packet-patch', id: pid, patch: { status: 'link', at: link.id, current: [...frame] } },
-        { k: 'metric', add: { framesSent: 1, frameBytesSent: frame.length, onLinkBytesSent: onLinkBytes, linkBusyMs: ms(serNs) } },
+        { k: 'metric', add: { framesSent: 1, frameBytesSent: frame.length, onLinkBytesSent: onLinkBytes, linkBusyMs: ms(serNs), appBytesSent: appSent } },
       ],
     });
     if (!id) return;
-    const kind = pkt(pid).kind;
+    const kind = rec.kind;
+    const fi = pending.findIndex((f) => f.target.packet === kind && f.target.attempt === rec.attempt && f.target.hop === hopIdx);
+    const fault = fi >= 0 ? pending.splice(fi, 1)[0] : undefined;
+    if (fault) {
+      const base = { device: from, iface: out.iface, direction: 'out' as const, layer: 'link' as const, type: 'fault' as const, packetId: pid, causeId: id };
+      const where = { link: link.id, hop: hopIdx, attempt: rec.attempt, kind };
+      if (fault.kind === 'drop') {
+        const f = emit({ ...base, tag: 'fault:drop', explainKey: 'fault.drop', explainArgs: { ...where, to } });
+        schedule(arrivalNs, () =>
+          emit({
+            device: to, iface: inn.iface, direction: 'in', layer: 'link', type: 'drop', tag: 'drop:fault', packetId: pid, causeId: f,
+            explainKey: 'drop.fault', explainArgs: { device: to, link: link.id, kind },
+            transition: { machine: 'packet', from: 'link', to: 'dropped' },
+            effects: [...clearHop(pid), ...rejectEffects(pid)],
+          }),
+        );
+        return;
+      }
+      if (fault.kind === 'delay') {
+        const f = emit({ ...base, tag: 'fault:delay', explainKey: 'fault.delay', explainArgs: { ...where, delayMs: fault.delayMs, to } });
+        const d = Math.round(fault.delayMs * NS_PER_MS);
+        schedule(arrivalNs + d, () => arrive(pid, frame, to, inn.iface, f ?? id));
+        return;
+      }
+      // Corruption happens on the wire, after the sender computed every checksum and the FCS.
+      const ihl = ((frame[14] ?? 0x45) & 0x0f) * 4;
+      const segStart = 14 + ihl;
+      const segLen = u16At(frame, 16) - ihl;
+      if (fault.offset >= segLen) {
+        emit({ ...base, tag: 'fault:skipped', explainKey: 'fault.skipped', explainArgs: { ...where, offset: fault.offset, segLen } });
+      } else {
+        const c = Uint8Array.from(frame);
+        const at = segStart + fault.offset;
+        const before = c[at] ?? 0;
+        c[at] = before ^ (1 << fault.bit);
+        if (fault.mode === 'transport') c.set(fcsBytes(crc32(c.subarray(0, c.length - 4))), c.length - 4); // valid outer FCS
+        const f = emit({
+          ...base, tag: `fault:corrupt:${fault.mode}`, explainKey: `fault.corrupt.${fault.mode}`,
+          explainArgs: { ...where, to, frameByte: at, offset: fault.offset, bit: fault.bit, from: `0x${hex(before)}`, into: `0x${hex(c[at] ?? 0)}` },
+          bytes: [...c],
+          effects: [{ k: 'packet-patch', id: pid, patch: { current: [...c], corrupt: { frameByte: at, bit: fault.bit, mode: fault.mode } } }],
+        });
+        schedule(arrivalNs, () => arrive(pid, c, to, inn.iface, f ?? id));
+        return;
+      }
+    }
     const left = lossLeft.get(kind) ?? 0;
     // Loss faults apply to the sender's own link (first hop) only.
     if (t.devices[from]?.kind === 'host' && left > 0) {
@@ -852,7 +913,7 @@ export function simulate(input: SimConfig): SimRun {
     if (!tm) return;
     if (tm.retries >= cfg.maxRetries) {
       emit({
-        device: dev, direction: 'local', layer: 'transport', type: 'give-up', tag: 'timer:giveup', explainKey: 'give-up',
+        device: dev, direction: 'local', layer: 'transport', type: 'give-up', tag: 'timer:giveup', explainKey: 'give-up', packetId: lastSent.get(dev)?.pid ?? null,
         explainArgs: { max: cfg.maxRetries, device: dev },
         transition: { machine: 'app', from: ep(dev).app, to: 'failed' },
         effects: [
@@ -863,7 +924,7 @@ export function simulate(input: SimConfig): SimRun {
       return;
     }
     const fired = emit({
-      device: dev, direction: 'local', layer: 'transport', type: 'timer-fire', tag: 'timer:fire:rto',
+      device: dev, direction: 'local', layer: 'transport', type: 'timer-fire', tag: 'timer:fire:rto', packetId: lastSent.get(dev)?.pid ?? null,
       explainKey: 'timer.fire', explainArgs: { attempt: tm.retries + 1, max: cfg.maxRetries },
       transition: { machine: 'timer', from: 'armed', to: 'expired' },
       effects: [{ k: 'timer', device: dev, name: 'rto', timer: { ...tm, armed: false, deadlineMs: null } }],

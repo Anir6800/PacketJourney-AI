@@ -52,6 +52,8 @@ export type PacketRec = {
   status: PacketStatus;
   attempt: number;
   rx: RxStatus;
+  /** Set by a corrupt fault: which frame byte/bit was flipped on the wire. */
+  corrupt?: { frameByte: number; bit: number; mode: 'wire' | 'transport' };
 };
 
 export type Hop = { packetId: string; linkId: string; from: string; to: string; sendStartMs: number; sendEndMs: number; arrivalMs: number };
@@ -65,6 +67,8 @@ export type Metrics = {
   /** Total serialization time across links, ms. */
   linkBusyMs: number;
   deliveredBytes: number;
+  /** Application bytes transmitted by endpoints, every attempt included (vs unique `deliveredBytes`). */
+  appBytesSent: number;
   drops: number;
   retransmissions: number;
   completedAtMs: number | null;
@@ -99,7 +103,7 @@ export type Effect =
 
 export type EventType =
   | 'session' | 'tcp-state' | 'app-send' | 'route' | 'encap' | 'transmit' | 'arrive' | 'verify' | 'decap' | 'forward' | 'drop' | 'socket'
-  | 'deliver' | 'app-process' | 'discard' | 'ack' | 'timer-set' | 'timer-cancel' | 'timer-fire' | 'retransmit' | 'give-up' | 'end';
+  | 'deliver' | 'app-process' | 'discard' | 'ack' | 'timer-set' | 'timer-cancel' | 'timer-fire' | 'retransmit' | 'give-up' | 'fault' | 'end';
 
 export type Timing = {
   sendStartMs: number;
@@ -150,7 +154,7 @@ export function deepFreeze<T>(o: T): T {
 }
 
 const zeroMetrics: Metrics = {
-  framesSent: 0, frameBytesSent: 0, onLinkBytesSent: 0, linkBusyMs: 0, deliveredBytes: 0, drops: 0, retransmissions: 0, completedAtMs: null,
+  framesSent: 0, frameBytesSent: 0, onLinkBytesSent: 0, linkBusyMs: 0, deliveredBytes: 0, appBytesSent: 0, drops: 0, retransmissions: 0, completedAtMs: null,
 };
 
 export function initialState(endpoints: Record<string, EndpointState>): SimState {

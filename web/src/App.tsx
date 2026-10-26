@@ -17,16 +17,13 @@ import {
   type SimState,
   type TemplateId,
 } from '@packetjourney/shared';
-import { ConfigForm } from './ConfigForm.tsx';
 import { Journey2D } from './Journey2D.tsx';
 import { EventLog } from './EventLog.tsx';
 import { Stage2D } from './Stage2D.tsx';
 import { TypedConsole } from './TypedConsole.tsx';
 import { HudLabel, Segmented, StateView, Tabs, useMediaQuery } from './ui.tsx';
 import { LAYERS, LayerGlyph, type LayerId } from './layers.tsx';
-import { FieldDetail, HeaderView } from './HeaderView.tsx';
 import { SnapshotDetail } from './SnapshotDetail.tsx';
-import { SessionPanel } from './SessionPanel.tsx';
 import { DeviceDetail } from './DeviceDetail.tsx';
 import { sceneModel } from './scene/model.ts';
 import { selection, useSelection, type Selection } from './selection.ts';
@@ -38,12 +35,19 @@ import { SPEEDS, type Speed } from './motion/clock.ts';
 import { MotionContext, createMotion, setCues } from './motion/motion.ts';
 import { Ladder } from './Ladder.tsx';
 import { CueOverlay } from './CueOverlay.tsx';
+import { FaultChain } from './faults/FaultPanels.tsx';
 import { debug } from './debug.ts';
 import { StoryPanel } from './StoryPanel.tsx';
 import { buildStory } from './story/script.ts';
 import { INITIAL_STORY, loadStory, saveStory, type StoryState } from './story/questions.ts';
 
 const JourneyStage3D = lazy(() => import('./JourneyStage3D.tsx'));
+// Lab-only UI loads on demand: Story Mode is the first-run default (keeps the initial bundle within budget).
+const ConfigForm = lazy(() => import('./ConfigForm.tsx').then((m) => ({ default: m.ConfigForm })));
+const HeaderView = lazy(() => import('./HeaderView.tsx').then((m) => ({ default: m.HeaderView })));
+const FieldDetail = lazy(() => import('./HeaderView.tsx').then((m) => ({ default: m.FieldDetail })));
+const SessionPanel = lazy(() => import('./SessionPanel.tsx').then((m) => ({ default: m.SessionPanel })));
+const FaultEditor = lazy(() => import('./faults/FaultEditor.tsx').then((m) => ({ default: m.FaultEditor })));
 
 type Ai = 'checking' | 'online' | 'unconfigured' | 'offline';
 type Mode = 'story' | 'lab';
@@ -432,6 +436,7 @@ export function App() {
             />
           ) : (
             <>
+          <Suspense fallback={<StateView kind="loading" title="Loading Lab controls…" />}>
           <p className="muted small">Free lab: every setting below. The story's answers live here too.</p>
           <button type="button" className="btn" data-testid="replay-story" onClick={replayAsStory}>
             Replay this run as a story
@@ -448,9 +453,8 @@ export function App() {
             setCookieB={setCookieB}
           />
           <HudLabel>Faults</HudLabel>
-          <p className="muted small" data-testid="lab-faults">
-            {draft.faults.length ? 'Lose the first data packet once (set in Story Mode).' : 'None.'} Corruption, duplication, reordering: NOT BUILT.
-          </p>
+          <FaultEditor draft={draft} setDraft={setDraft} issues={issues} />
+          </Suspense>
             </>
           )}
         </aside>
@@ -462,7 +466,7 @@ export function App() {
               {tab === 'journey' && (
                 <>
                   {ses && (
-                    <SessionPanel
+                    <Suspense fallback={null}><SessionPanel
                       ses={ses.s}
                       conn={conn}
                       onConn={(c) => {
@@ -470,7 +474,7 @@ export function App() {
                         setSelectedEvent(null);
                         setSelectedField(null);
                       }}
-                    />
+                    /></Suspense>
                   )}
                   <div className="viewport">
                     {webglWanted && (
@@ -494,6 +498,7 @@ export function App() {
                     {!webgl && <Stage2D reason={fallbackReason} />}
                     <CueOverlay run={run} cues={cues} reduced={reduced} />
                   </div>
+                  <FaultChain events={run.events} step={journeyIndex} onStep={selectEvent} />
                   <Journey2D
                     key={`${run.runId}:${conn}`}
                     run={run}
@@ -502,6 +507,7 @@ export function App() {
                     selectedDevice={sel.kind === 'device' ? sel.id : null}
                     onSelectDevice={(id) => pick({ kind: 'device', id })}
                     scope={beat?.scope ?? undefined}
+                    fx={{ timers: model.timers, notice: model.notice }}
                   />
                   <Ladder run={run} cues={cues} reduced={reduced} />
                   <ol className="stack" aria-label="Layer stack (SIMULATED)">
@@ -543,7 +549,7 @@ export function App() {
                 </>
               )}
               {tab === 'headers' && (
-                <HeaderView
+                <Suspense fallback={<StateView kind="loading" title="Loading headers…" />}><HeaderView
                   snap={snap}
                   selected={selectedField}
                   onSelect={(id) => {
@@ -552,7 +558,7 @@ export function App() {
                     setShowSel(false);
                     openInspector();
                   }}
-                />
+                /></Suspense>
               )}
               {tab === 'scopes' && (
                 <StateView kind="empty" title="Delivery scopes are overlays on the journey">
@@ -587,7 +593,7 @@ export function App() {
           {!showSel && evSnap && selectedEvent !== null ? (
             <SnapshotDetail s={evSnap} tag={run.events[selectedEvent]?.tag ?? ''} />
           ) : !showSel && selField ? (
-            <FieldDetail f={selField} />
+            <Suspense fallback={null}><FieldDetail f={selField} /></Suspense>
           ) : sel.kind === 'device' ? (
             <DeviceDetail t={run.template} id={sel.id} />
           ) : (

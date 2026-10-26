@@ -49,13 +49,17 @@ export type TransportConfig = z.infer<typeof TransportConfig>;
 export const PacketKind = z.enum(['syn', 'syn-ack', 'hs-ack', 'data', 'ack', 'response', 'response-ack', 'fin-client', 'ack-fin-client', 'fin-server', 'ack-fin-server']);
 export type PacketKind = z.infer<typeof PacketKind>;
 
-// Only `loss` has engine behaviour (phase 03, for bounded retry tests). The rest are NOT BUILT.
+// `loss` (count-based, sender's first link; phases 03–07 recovery tests, also used by Story Mode) plus the
+// phase 11 targeted one-shot faults. A target names the packet kind (which also fixes the direction), the
+// transmission attempt (0 = original, n = n-th retransmission) and the hop (link index along that packet's path).
+export const FaultTarget = z.object({ packet: PacketKind, attempt: z.int().min(0).max(10), hop: z.int().min(0).max(8) });
+export type FaultTarget = z.infer<typeof FaultTarget>;
 export const Fault = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('loss'), packet: PacketKind, count: z.int().min(1).max(10) }),
-  z.object({ kind: z.literal('bitflip'), byte: z.int().min(0), bit: z.int().min(0).max(7) }),
-  z.object({ kind: z.literal('duplicate') }),
-  z.object({ kind: z.literal('reorder') }),
-  z.object({ kind: z.literal('ttl-expiry') }),
+  z.object({ kind: z.literal('drop'), target: FaultTarget }),
+  z.object({ kind: z.literal('delay'), target: FaultTarget, delayMs: z.number().min(0.001).max(2000) }),
+  /** wire: flip after FCS (fails FCS at the next receiver). transport: flip a protected transport byte and recompute the outer FCS. */
+  z.object({ kind: z.literal('corrupt'), target: FaultTarget, mode: z.enum(['wire', 'transport']), offset: z.int().min(0), bit: z.int().min(0).max(7) }),
 ]);
 export type Fault = z.infer<typeof Fault>;
 

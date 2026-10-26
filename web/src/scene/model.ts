@@ -15,7 +15,7 @@ const DEPTH: [RegExp, number][] = [
   [/^(decap:link|verify:internet|drop:internet|drop:ttl|route:lookup)$/, 3],
   [/^(decap:internet|verify:transport|socket:|drop:transport)/, 2],
   [/^(decap:transport|deliver:app|app:processed|tcp:duplicate|ack)/, 1],
-  [/^(encap:link|hop:|verify:link|drop|tcp:retransmit)/, 4],
+  [/^(encap:link|hop:|verify:link|drop|tcp:retransmit|fault:)/, 4],
 ];
 export const depthOf = (tag: string) => DEPTH.find(([re]) => re.test(tag))?.[1] ?? 0;
 
@@ -42,7 +42,17 @@ export type ScenePacket = {
   releasing: ShellLayer | null;
   /** Router forward: the Internet shell flashes TTL n → n−1. */
   ttlFlash: boolean;
+  /** The engine dropped this frame at this event (fault, FCS, checksum, TTL, no route). */
+  dropped: boolean;
+  /** This event is the wire corruption itself: the shell glitches briefly. */
+  glitch: boolean;
+  /** Frame byte flipped by a corrupt fault (for the pink byte highlight). */
+  corruptByte: number | null;
 };
+/** An armed retransmission timer: the ring counts down from totalMs to the deadline in virtual time. */
+export type SceneTimer = { device: string; deadlineMs: number; totalMs: number };
+/** A short presentation tag at a device for drop / duplicate / bit-flip events. */
+export type SceneNotice = { device: string; text: string; tone: 'danger' | 'info' };
 export type SceneModel = {
   template: string;
   /** row: left→right (wide stages); column: top→bottom (narrow stages, so labels have room). */
@@ -52,6 +62,8 @@ export type SceneModel = {
   ifaces: SceneIface[];
   links: SceneLink[];
   packet: ScenePacket | null;
+  timers: SceneTimer[];
+  notice: SceneNotice | null;
   summary: string;
 };
 
@@ -154,10 +166,28 @@ export function sceneModel(run: SimRun, index: number, summary: string): SceneMo
       adding: ev.tag.startsWith('encap:') || /^app:(send|respond)$/.test(ev.tag) ? (shells[0]?.layer ?? null) : null,
       releasing: ev.tag.startsWith('decap:') ? (SHELL_ORDER[4 - depth - 1] ?? null) : null,
       ttlFlash: /^hop:.+:forward$/.test(ev.tag),
+      dropped: ev.type === 'drop',
+      glitch: ev.tag.startsWith('fault:corrupt'),
+      corruptByte: p?.corrupt?.frameByte ?? null,
     };
   }
 
-  return { template: t.id, layout: 'row', step: index, devices, ifaces, links, packet, summary };
+  const timers: SceneTimer[] = Object.values(s.endpoints).flatMap((e) => {
+    const tm = e.timers.rto;
+    return tm?.armed && tm.deadlineMs !== null ? [{ device: e.device, deadlineMs: tm.deadlineMs, totalMs: run.config.rtoMs * 2 ** tm.retries }] : [];
+  });
+  const notice: SceneNotice | null = !ev
+    ? null
+    : ev.type === 'drop'
+      ? { device: ev.device, text: 'DROPPED · simulated', tone: 'danger' }
+      : ev.tag.startsWith('fault:corrupt')
+        ? { device: ev.device, text: 'BIT FLIP · simulated', tone: 'danger' }
+        : ev.tag === 'tcp:duplicate' || ev.tag === 'tcp:duplicate-fin'
+          ? { device: ev.device, text: 'DUPLICATE · discarded, re-ACKed', tone: 'info' }
+          : ev.tag === 'fault:delay'
+            ? { device: ev.device, text: `DELAYED ${ev.explainArgs.delayMs} ms · simulated`, tone: 'info' }
+            : null;
+  return { template: t.id, layout: 'row', step: index, devices, ifaces, links, packet, timers, notice, summary };
 }
 
 /**
