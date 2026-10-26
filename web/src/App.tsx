@@ -2,12 +2,16 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   DEFAULT_SIM,
   RunController,
+  continueHttpSession,
   hex,
+  httpSessionConfigs,
   representations,
   sameConfig,
   validateSimConfig,
   bin,
+  type CookieChoice,
   type HealthResponse,
+  type HttpSessionRun,
   type SimConfig,
   type SimState,
   type TemplateId,
@@ -21,6 +25,7 @@ import { HudLabel, Segmented, StateView, Tabs, useMediaQuery } from './ui.tsx';
 import { LAYERS, LayerGlyph, type LayerId } from './layers.tsx';
 import { FieldDetail, HeaderView } from './HeaderView.tsx';
 import { SnapshotDetail } from './SnapshotDetail.tsx';
+import { SessionPanel } from './SessionPanel.tsx';
 import { fmtTime } from './format.ts';
 import { hasWebGL, type Motion, type View } from './settings.ts';
 import { useBoot } from './useBoot.ts';
@@ -84,11 +89,18 @@ export function App() {
     const c = new RunController();
     return { controller: c, first: c.start(structuredClone(DEFAULT_SIM)) };
   });
-  const [run, setRun] = useState(first);
-  /** Editable draft; the stage always shows `run.config` until the user runs it. */
+  const [latest, setRun] = useState(first);
+  /** HTTP mode: both connections plus the draft and cookie choice that produced them. */
+  const [ses, setSes] = useState<{ s: HttpSessionRun; base: SimConfig; cookieB: CookieChoice } | null>(null);
+  const [conn, setConn] = useState<'a' | 'b'>('a');
+  const [cookieB, setCookieB] = useState<CookieChoice>('valid');
+  /** The connection on stage: the single run, or connection A/B of the session demo. */
+  const run = ses ? { ...(conn === 'a' ? ses.s.a : ses.s.b), runId: latest.runId } : latest;
+  /** Editable draft; the stage always shows the last run's config until the user runs it. */
   const [draft, setDraft] = useState<SimConfig>(() => structuredClone(first.config));
   const proto = draft.protocol;
-  const setProto = (p: Proto) => setDraft((d) => ({ ...d, protocol: p }));
+  // UDP supports raw echo only, so switching to UDP leaves HTTP/session mode.
+  const setProto = (p: Proto) => setDraft((d) => ({ ...d, protocol: p, payloadMode: p === 'UDP' ? 'raw' : d.payloadMode }));
   const [drawerOpen, setDrawerOpen] = useState(false);
   const help = useRef<HTMLDialogElement>(null);
   const inspector = useRef<HTMLElement>(null);
@@ -127,22 +139,34 @@ export function App() {
   }, [drawer, drawerOpen]);
 
   const issues = validateSimConfig(draft);
-  const dirty = !sameConfig(draft, run.config);
+  const dirty = ses ? !sameConfig(draft, ses.base) || cookieB !== ses.cookieB : !sameConfig(draft, latest.config);
   const snap = run.timeline.final;
   const runProto = run.config.protocol;
 
   const lines = consoleLines(snap, runProto, run.config.template);
-  const reps = representations(run.config.request);
+  const sentText = new TextDecoder().decode(Uint8Array.from(run.events.find((e) => e.tag === 'app:send')?.bytes ?? []));
+  const reps = representations(sentText);
   const evSnap = selectedEvent === null ? null : run.timeline.at(selectedEvent);
   const journeyIndex = selectedEvent ?? run.events.length - 1;
 
   const startRun = () => {
     if (issues.length) return;
-    setRun(controller.start(draft));
+    if (draft.payloadMode === 'http') {
+      const a = controller.start(httpSessionConfigs(draft).a);
+      setRun(a);
+      setSes({ s: continueHttpSession(a, draft, cookieB), base: structuredClone(draft), cookieB });
+      setConn('a');
+    } else {
+      setRun(controller.start(draft));
+      setSes(null);
+    }
     setSelectedEvent(null);
     setSelectedField(null);
   };
-  const resetDraft = () => setDraft(structuredClone(run.config));
+  const resetDraft = () => {
+    setDraft(structuredClone(ses ? ses.base : latest.config));
+    if (ses) setCookieB(ses.cookieB);
+  };
   const selectEvent = (i: number) => {
     setSelectedEvent(i);
     setSelectedField(null);
@@ -204,7 +228,9 @@ export function App() {
             dirty={dirty}
             onRun={startRun}
             onReset={resetDraft}
-            runInfo={`Run #${run.runId} · seed ${run.config.seed} · ${run.config.protocol} · ${run.config.template}`}
+            runInfo={`Run #${run.runId} · seed ${run.config.seed} · ${run.config.protocol} · ${run.config.template}${ses ? ` · HTTP session, connection ${conn.toUpperCase()}` : ''}`}
+            cookieB={cookieB}
+            setCookieB={setCookieB}
           />
           <HudLabel>Faults</HudLabel>
           <p className="muted small">Loss, corruption, reordering: NOT BUILT.</p>
@@ -225,7 +251,18 @@ export function App() {
             <div className="tab-panel scrim" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
               {tab === 'journey' && (
                 <>
-                  <Journey2D run={run} index={journeyIndex} onStep={selectEvent} />
+                  {ses && (
+                    <SessionPanel
+                      ses={ses.s}
+                      conn={conn}
+                      onConn={(c) => {
+                        setConn(c);
+                        setSelectedEvent(null);
+                        setSelectedField(null);
+                      }}
+                    />
+                  )}
+                  <Journey2D key={`${run.runId}:${conn}`} run={run} index={journeyIndex} onStep={selectEvent} />
                   <ol className="stack" aria-label="Layer stack (SIMULATED)">
                     {stack.map((r) => (
                       <li key={r.layer}>

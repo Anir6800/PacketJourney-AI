@@ -7,12 +7,21 @@ export type AppState = 'idle' | 'sent' | 'received' | 'processed' | 'responded' 
 /** Receiver-side status of one packet: transport acceptance and application processing are separate. */
 export type RxStatus = { transport: 'pending' | 'accepted' | 'rejected'; app: 'pending' | 'processed' };
 
+/** Application-level HTTP session state (server: in-memory table; client: demo cookie jar). Independent of TCP. */
+export type SessionState = {
+  /** Server: demo session ids it remembers. Client: the cookie it holds. */
+  known: string[];
+  verdict: 'recognized' | 'unrecognized' | null;
+  cookieSent: string | null;
+  issued: string | null;
+};
+
 export type TimerRec = { generation: number; armed: boolean; deadlineMs: number | null; retries: number };
 
 export type EndpointState = {
   device: string;
   role: 'client' | 'server';
-  /** RFC 9293 state name. Handshake/close are NOT BUILT: sessions start ESTABLISHED by assumption. */
+  /** RFC 9293 state name (see tcp.ts for the modelled subset). */
   tcpState: string;
   /** Initial send / receive sequence numbers (TCP only). */
   iss: number | null;
@@ -27,6 +36,8 @@ export type EndpointState = {
   deliveredBytes: number;
   app: AppState;
   timers: Record<string, TimerRec>;
+  /** HTTP payload mode only; null in raw mode. */
+  session: SessionState | null;
 };
 
 export type PacketStatus = 'host' | 'link' | 'router' | 'delivered' | 'dropped' | 'discarded';

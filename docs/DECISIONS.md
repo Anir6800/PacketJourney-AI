@@ -142,3 +142,15 @@ The phase's new teaching content is per-hop addressing; the selector is local to
 
 ## D-008 · Postprocessing / drei installed, not yet imported
 Installed and version-checked for later phases; not imported in phase 00 so they do not inflate the 3D chunk.
+
+## D-043 · Normal close only; close is opt-in for raw mode (2026-10-26)
+Modelled: ESTABLISHED → FIN-WAIT-1 → FIN-WAIT-2 → TIME-WAIT → CLOSED (client) and ESTABLISHED → CLOSE-WAIT → LAST-ACK → CLOSED (server), with separate ACK and FIN from the server (its app closes after its 1 ms SIMULATED delay). FIN consumes one sequence number and is retransmitted by RTO. A FIN+ACK in FIN-WAIT-1 that acknowledges our FIN is processed as ACK → FIN-WAIT-2, then FIN → TIME-WAIT. Retransmitted FINs are re-ACKed; in TIME-WAIT the timer restarts (RFC 9293 §3.10.7.4). Simultaneous close (CLOSING) and RST: NOT BUILT. `close.enabled` defaults to false so earlier raw fixtures still end ESTABLISHED; the UI checkbox enables it, HTTP mode forces it.
+
+## D-044 · TIME-WAIT is an educational timer
+Default 400 ms of virtual time, configurable 1–2000 ms, labelled EDUCATIONAL everywhere. Real stacks wait 2×MSL (RFC 9293 suggests MSL = 2 min); that would dwarf every other event.
+
+## D-045 · The client closes after it processes the reply
+Close is triggered by the client app once its data is ACKed and (if a reply is expected) the reply has been processed. An empty raw message with close on is the orderly no-data close: handshake → FIN exchange, no data segment. Empty is rejected otherwise.
+
+## D-046 · HTTP session demo = two separate simulations
+`simulateHttpSession(base, cookieB)` runs connection A (`GET /`, no cookie → server issues `Set-Cookie: sid=demo-xxxxxxxx`) to completion including TIME-WAIT, then connection B (`GET /profile`, client port + 1, ISNs + 1000, seed + 1) whose server starts with A's in-memory session table. Each connection keeps its own virtual clock; the UI switches A/B. Ids are deterministic from the seed (`demo-` + 8 hex), never random or secret. The server app answers 200 OK with a UTF-8 body containing an em dash so Content-Length (bytes) differs from the character count. Missing or unknown cookie → unrecognized + new id. No session-layer header; no browser cookies; HTTP is plain text; TLS NOT BUILT. UDP: HTTP mode is rejected by validation and the UI option is disabled with the reason; switching to UDP resets the mode to raw.

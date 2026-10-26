@@ -331,3 +331,11 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   animation: none !important;
   transition: none !important;
 }
+
+/* HTTP session demo (phase 07) */
+.session { display: grid; gap: 8px; border: 1px solid var(--c-hairline); border-left: 3px solid var(--c-app); border-radius: 8px; padding: 8px 10px; background: rgba(5, 7, 13, 0.5); }
+.http-msgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+.http-msgs figure { margin: 0; min-width: 0; }
+.http-msgs pre { margin: 4px 0 0; padding: 6px 8px; border: 1px solid var(--c-hairline); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+[data-verdict='recognized'] { color: var(--c-success); }
+[data-verdict='unrecognized'] { color: var(--c-danger); }

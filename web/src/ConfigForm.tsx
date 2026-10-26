@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { PAYLOAD_MAX, checkPayload, templateEndpoints, type ConfigIssue, type SimConfig, type TemplateId } from '@packetjourney/shared';
+import { PAYLOAD_MAX, checkPayload, templateEndpoints, type ConfigIssue, type CookieChoice, type SimConfig, type TemplateId } from '@packetjourney/shared';
 
 type Props = {
   draft: SimConfig;
@@ -9,6 +9,8 @@ type Props = {
   onRun: () => void;
   onReset: () => void;
   runInfo: string;
+  cookieB: CookieChoice;
+  setCookieB: (c: CookieChoice) => void;
 };
 
 function Input(p: {
@@ -53,10 +55,12 @@ const portText = (p: number) => (Number.isNaN(p) ? '' : String(p));
 /** Digits-only numeric input; empty → NaN so validation reports it. Used for ports and ISNs. */
 const toPort = (v: string) => (v.replace(/\D/g, '') === '' ? Number.NaN : Number(v.replace(/\D/g, '')));
 
-export function ConfigForm({ draft, setDraft, issues, dirty, onRun, onReset, runInfo }: Props) {
+export function ConfigForm({ draft, setDraft, issues, dirty, onRun, onReset, runInfo, cookieB, setCookieB }: Props) {
   const err = (f: string) => issues.find((i) => i.field === f)?.message;
   const check = checkPayload(draft.request);
   const routed = draft.template === 'routed';
+  const http = draft.payloadMode === 'http';
+  const tcp = draft.protocol === 'TCP';
   const setEp = (side: 'client' | 'server', k: 'ip' | 'mac' | 'port', v: string | number) =>
     setDraft((d) => ({ ...d, endpoints: { ...d.endpoints, [side]: { ...d.endpoints[side], [k]: v } } }));
 
@@ -69,10 +73,48 @@ export function ConfigForm({ draft, setDraft, issues, dirty, onRun, onReset, run
         onRun();
       }}
     >
-      <Input id="msg" label="Message" value={draft.request} onChange={(v) => setDraft((d) => ({ ...d, request: v }))} error={err('request')} />
-      <p className={`small mono ${check.ok ? 'muted' : 'field-error'}`} data-testid="byte-count">
-        {check.ok ? check.bytes.length : check.byteLength} / {PAYLOAD_MAX} bytes · {[...draft.request].length} characters
+      <label htmlFor="payload-mode">Payload</label>
+      <select
+        id="payload-mode"
+        className="field"
+        value={draft.payloadMode}
+        aria-describedby="payload-mode-hint"
+        onChange={(e) => setDraft((d) => ({ ...d, payloadMode: e.target.value === 'http' ? 'http' : 'raw' }))}
+      >
+        <option value="raw">Raw text</option>
+        <option value="http" disabled={!tcp}>
+          HTTP/1.1 session demo{tcp ? '' : ' · TCP only'}
+        </option>
+      </select>
+      <p id="payload-mode-hint" className="small muted" data-testid="payload-mode-hint">
+        {tcp
+          ? 'HTTP mode runs two TCP connections (A, then B on another client port) and shows a demo session cookie surviving the close of A.'
+          : 'HTTP/session mode is disabled for UDP: HTTP/1.1 needs a reliable, ordered byte stream. UDP supports raw echo only.'}
       </p>
+      {err('payloadMode') && (
+        <p className="field-error" role="alert">
+          ✕ {err('payloadMode')}
+        </p>
+      )}
+      {http ? (
+        <>
+          <label htmlFor="cookie-b">Connection B sends</label>
+          <select id="cookie-b" className="field" value={cookieB} onChange={(e) => setCookieB(e.target.value as CookieChoice)}>
+            <option value="valid">The cookie issued on A</option>
+            <option value="missing">No cookie</option>
+            <option value="invalid">An invalid demo id</option>
+          </select>
+          <p className="small muted">Requests and responses are generated HTTP/1.1 text (CRLF line ends, Content-Length in bytes). Demo session ids are EDUCATIONAL, not credentials; HTTP is unencrypted; TLS NOT BUILT.</p>
+        </>
+      ) : (
+        <>
+          <Input id="msg" label="Message" value={draft.request} onChange={(v) => setDraft((d) => ({ ...d, request: v }))} error={err('request')} />
+          <p className={`small mono ${check.ok || (tcp && draft.close.enabled && draft.request === '') ? 'muted' : 'field-error'}`} data-testid="byte-count">
+            {check.ok ? check.bytes.length : check.byteLength} / {PAYLOAD_MAX} bytes · {[...draft.request].length} characters
+            {tcp && draft.close.enabled && draft.request === '' ? ' · orderly no-data close' : ''}
+          </p>
+        </>
+      )}
 
       <label htmlFor="scope">Destination</label>
       <select
@@ -129,6 +171,8 @@ export function ConfigForm({ draft, setDraft, issues, dirty, onRun, onReset, run
         hint="Only an application bound to this port receives the message. A different port reaches no app."
       />
 
+      {!http && (
+      <>
       <label className="check">
         <input
           type="checkbox"
@@ -145,7 +189,33 @@ export function ConfigForm({ draft, setDraft, issues, dirty, onRun, onReset, run
         onChange={(v) => setDraft((d) => ({ ...d, reply: { ...d.reply, text: v } }))}
         error={err('reply.text')}
       />
+      </>
+      )}
 
+      {tcp && (
+        <fieldset className="endpoint">
+          <legend>TCP close</legend>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={http || draft.close.enabled}
+              disabled={http}
+              onChange={(e) => setDraft((d) => ({ ...d, close: { ...d.close, enabled: e.target.checked } }))}
+            />{' '}
+            Close the connection after the exchange{http ? ' (always on in HTTP mode)' : ''}
+          </label>
+          <Input
+            id="time-wait"
+            label="TIME-WAIT (ms, educational)"
+            numeric
+            disabled={!(http || draft.close.enabled)}
+            value={Number.isNaN(draft.close.timeWaitMs) ? '' : String(draft.close.timeWaitMs)}
+            onChange={(v) => setDraft((d) => ({ ...d, close: { ...d.close, timeWaitMs: toPort(v) } }))}
+            error={err('close.timeWaitMs')}
+            hint="Client FIN → server ACK → server FIN → client ACK; each FIN consumes one sequence number. This timer is an EDUCATIONAL value, not an OS default (real 2×MSL is minutes). Leave the message empty for a no-data close."
+          />
+        </fieldset>
+      )}
       {draft.protocol === 'TCP' && (
         <fieldset className="endpoint">
           <legend>TCP teaching ISNs</legend>

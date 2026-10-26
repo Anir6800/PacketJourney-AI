@@ -1,4 +1,5 @@
 import { utf8 } from '../bytes.ts';
+import { cookieValue, handleHttp, httpRequest, parseHttp } from './http.ts';
 import { CRC32_RESIDUE, crc32, pseudoHeader, verifyInternetChecksum } from '../checksum.ts';
 import { encode, ethernetFrame, forwardPacket, packetFromFrame } from '../encode.ts';
 import { prng, u16 } from '../prng.ts';
@@ -11,6 +12,7 @@ import {
   reduce,
   type EndReason,
   type EndpointState,
+  type SessionState,
   type SimState,
   type SimulationEvent,
 } from './state.ts';
@@ -30,8 +32,14 @@ export type SimConfig = {
   endpoints: Endpoints;
   /** Destination port the client sends to (may differ from the server's listening port). */
   requestDstPort: number;
-  /** Server application behaviour: a custom echo that answers with this configured text. */
+  /** Server application behaviour (raw mode): a custom echo that answers with this configured text. */
   reply: { enabled: boolean; text: string };
+  /** Raw text, or an illustrative HTTP/1.1 exchange (TCP only). In HTTP mode `request`/`reply` are not used. */
+  payloadMode: 'raw' | 'http';
+  /** HTTP mode: the client's request and the server app's in-memory session table at the start of this connection. */
+  http: { path: string; cookie: string | null; knownSessions: string[] };
+  /** TCP normal close after the exchange. TIME-WAIT is an EDUCATIONAL timer, not an OS default (2×MSL is minutes). */
+  close: { enabled: boolean; timeWaitMs: number };
   /** Teaching ISNs — deliberately fixed and readable, NOT secure random ISNs (RFC 9293 §3.4.1, RFC 6528). */
   tcp: { isnClient: number; isnServer: number };
   ttl: number;
@@ -54,6 +62,9 @@ export function defaultSimConfig(template: TemplateId = 'same-lan', protocol: 'T
     endpoints,
     requestDstPort: endpoints.server.port,
     reply: { enabled: true, text: 'World' },
+    payloadMode: 'raw',
+    http: { path: '/', cookie: null, knownSessions: [] },
+    close: { enabled: false, timeWaitMs: 400 },
     tcp: { isnClient: 1000, isnServer: 5000 },
     ttl: 64,
     rtoMs: 200,
@@ -110,6 +121,11 @@ export function simulate(input: SimConfig): SimRun {
   const t = instantiate(cfg.template, cfg.endpoints);
   const arp = arpCaches(t); // prepopulated; ARP exchange NOT BUILT
   const isTcp = cfg.protocol === 'TCP';
+  const isHttp = cfg.payloadMode === 'http';
+  const serverIp = t.devices[t.server]?.ifaces[0]?.ip ?? '';
+  const request = isHttp ? utf8(httpRequest({ path: cfg.http.path, host: serverIp, cookie: cfg.http.cookie })) : utf8(cfg.request);
+  /** The client closes only after the reply it expects (if any) has been processed. */
+  const expectReply = request.length > 0 && (isHttp || cfg.reply.enabled);
   const r = prng(cfg.seed);
   const cPort = cfg.endpoints.client.port;
   const sPort = cfg.endpoints.server.port;
@@ -117,12 +133,16 @@ export function simulate(input: SimConfig): SimRun {
   /** Bound sockets per device (port → application). */
   const sockets: Record<string, Record<number, string>> = {
     [t.client]: { [cPort]: 'client app' },
-    [t.server]: { [sPort]: 'echo app' },
+    [t.server]: { [sPort]: isHttp ? 'HTTP app' : 'echo app' },
   };
 
+  const session = (role: 'client' | 'server'): SessionState | null =>
+    isHttp
+      ? { known: role === 'server' ? [...cfg.http.knownSessions] : cfg.http.cookie === null ? [] : [cfg.http.cookie], verdict: null, cookieSent: null, issued: null }
+      : null;
   const endpoint = (device: string, role: 'client' | 'server'): EndpointState => ({
     device, role, tcpState: 'CLOSED', iss: null, irs: null, sndUna: null, sndNxt: null, rcvNxt: null,
-    sendBuffer: [], recvBuffer: [], deliveredBytes: 0, app: 'idle', timers: {},
+    sendBuffer: [], recvBuffer: [], deliveredBytes: 0, app: 'idle', timers: {}, session: session(role),
   });
   const init = initialState({ [t.client]: endpoint(t.client, 'client'), [t.server]: endpoint(t.server, 'server') });
 
@@ -544,6 +564,7 @@ export function simulate(input: SimConfig): SimRun {
     const bits = seg[13] ?? 0;
     const SYN = (bits & TCP_FLAG.SYN) !== 0;
     const ACK = (bits & TCP_FLAG.ACK) !== 0;
+    const FIN = (bits & TCP_FLAG.FIN) !== 0;
     const seq = u32At(seg, 4);
     const ack = u32At(seg, 8);
     let cause = causeId;
@@ -563,6 +584,7 @@ export function simulate(input: SimConfig): SimRun {
         cause = tcpState(dev, 'ESTABLISHED', { irs: seq, rcvNxt: seqAdd(seq, 1) }, cause, 'tcp.established.client', { seq, ack });
         cause = sendSegment({ kind: 'hs-ack', from: dev, payload: new Uint8Array(), flags: { ...NO_FLAGS, ack: true }, consumes: 0, causeId: cause });
         flush(dev, cause);
+        tryClose(dev, cause); // no-data close: nothing queued, so the client may close right away
         return;
       }
       case 'SYN-RECEIVED': {
@@ -570,17 +592,23 @@ export function simulate(input: SimConfig): SimRun {
         if (!ACK || ack !== me.sndNxt) return ignored(dev, pid, cause, 'ACK does not acknowledge our SYN');
         cause = processAck(dev, ack, false, pid, cause);
         cause = tcpState(dev, 'ESTABLISHED', {}, cause, 'tcp.established.server', { ack });
-        if (payload.length === 0) return; // the handshake ACK carries no data
-        break; // data riding on the ACK: continue as ESTABLISHED
+        if (payload.length === 0 && !FIN) return; // the handshake ACK carries no data
+        break; // data (or FIN) riding on the ACK: continue as ESTABLISHED
       }
       case 'ESTABLISHED':
+      case 'FIN-WAIT-1':
+      case 'FIN-WAIT-2':
+      case 'CLOSE-WAIT':
+      case 'LAST-ACK':
+      case 'TIME-WAIT':
         break;
       default:
-        return ignored(dev, pid, cause, 'state not modelled');
+        return ignored(dev, pid, cause, 'connection is CLOSED (RST NOT BUILT)');
     }
 
-    // ESTABLISHED
+    const st = ep(dev).tcpState;
     if (SYN) {
+      if (st !== 'ESTABLISHED') return ignored(dev, pid, cause, `SYN in ${st}`);
       // Retransmitted SYN-ACK after our handshake ACK was lost: not acceptable → re-ACK (RFC 9293 §3.10.7.4).
       cause = emit({
         device: dev, direction: 'in', layer: 'transport', type: 'discard', tag: 'tcp:duplicate', packetId: pid, causeId: cause,
@@ -590,9 +618,11 @@ export function simulate(input: SimConfig): SimRun {
       sendSegment({ kind: 'hs-ack', from: dev, payload: new Uint8Array(), flags: { ...NO_FLAGS, ack: true }, consumes: 0, causeId: cause });
       return;
     }
+    // Only states that still receive data accept new bytes (RFC 9293 §3.10.7.4, "seventh, process the segment text").
+    const receiving = st === 'ESTABLISHED' || st === 'FIN-WAIT-1' || st === 'FIN-WAIT-2';
     let fresh = false;
     if (payload.length > 0) {
-      if (seq === ep(dev).rcvNxt) {
+      if (receiving && seq === ep(dev).rcvNxt) {
         cause = deliver(pid, dev, payload, app, cause);
         fresh = true;
       } else {
@@ -603,12 +633,105 @@ export function simulate(input: SimConfig): SimRun {
         });
       }
     }
-    if (ACK) cause = processAck(dev, ack, payload.length > 0, pid, cause);
+    if (ACK) {
+      const nxt = ep(dev).sndNxt;
+      if ((st === 'FIN-WAIT-1' || st === 'LAST-ACK') && ack === nxt && ep(dev).sndUna !== nxt) {
+        cause = processAck(dev, ack, false, pid, cause);
+        if (st === 'LAST-ACK') {
+          tcpState(dev, 'CLOSED', {}, cause, 'tcp.closed.last-ack', { ack });
+          return;
+        }
+        cause = tcpState(dev, 'FIN-WAIT-2', {}, cause, 'tcp.fin-wait-2', { ack });
+      } else cause = processAck(dev, ack, payload.length > 0 || FIN, pid, cause);
+    }
+    if (FIN) return receiveFin(pid, dev, seqAdd(seq, payload.length), cause);
     if (payload.length > 0) {
       // No delayed ACK (pedagogical choice): every data segment is acknowledged immediately.
       sendSegment({ kind: kind === 'data' ? 'ack' : 'response-ack', from: dev, payload: new Uint8Array(), flags: { ...NO_FLAGS, ack: true }, consumes: 0, causeId: cause });
       if (fresh) processApp(pid, dev, app, cause);
+    } else if (dev === t.client && !expectReply) tryClose(dev, cause);
+  }
+
+  // ---------- close (RFC 9293 §3.6, normal close sequence) ----------
+  /** The client app closes once its data is acknowledged and any expected reply has been processed. */
+  function tryClose(dev: string, causeId: string | null) {
+    const me = ep(dev);
+    if (!isTcp || !cfg.close.enabled || dev !== t.client || me.tcpState !== 'ESTABLISHED') return;
+    if (me.sendBuffer.length > 0 || me.sndUna !== me.sndNxt || (expectReply && me.app !== 'got-response')) return;
+    activeClose(dev, causeId);
+  }
+
+  /** CLOSE: send FIN (consumes one sequence number). Client = active close; server = its half of the passive close. */
+  function activeClose(dev: string, causeId: string | null) {
+    const client = dev === t.client;
+    const seq = ep(dev).sndNxt ?? 0;
+    const c = emit({
+      device: dev, direction: 'local', layer: 'app', type: 'session', tag: 'app:close', causeId,
+      explainKey: client ? 'app.close.active' : 'app.close.passive', explainArgs: { device: dev, app: sockets[dev]?.[client ? cPort : sPort] ?? 'app' },
+    });
+    const fin = sendSegment({ kind: client ? 'fin-client' : 'fin-server', from: dev, payload: new Uint8Array(), flags: { ...NO_FLAGS, ack: true, fin: true }, consumes: 1, causeId: c });
+    tcpState(dev, client ? 'FIN-WAIT-1' : 'LAST-ACK', {}, fin, client ? 'tcp.fin-wait-1' : 'tcp.last-ack', { seq, next: seqAdd(seq, 1) });
+  }
+
+  function receiveFin(pid: string, dev: string, finSeq: number, causeId: string | null) {
+    const me = ep(dev);
+    const st = me.tcpState;
+    const rcv = me.rcvNxt ?? 0;
+    const ackKind = dev === t.client ? 'ack-fin-server' : 'ack-fin-client';
+    const ackFin = (c: string | null) => sendSegment({ kind: ackKind, from: dev, payload: new Uint8Array(), flags: { ...NO_FLAGS, ack: true }, consumes: 0, causeId: c });
+    if (finSeq === rcv && (st === 'ESTABLISHED' || st === 'FIN-WAIT-2')) {
+      const next = seqAdd(rcv, 1); // the FIN consumes one sequence number
+      const toWait = st === 'ESTABLISHED';
+      const c = tcpState(dev, toWait ? 'CLOSE-WAIT' : 'TIME-WAIT', { rcvNxt: next }, causeId, toWait ? 'tcp.close-wait' : 'tcp.time-wait', { seq: finSeq, rcvNxt: next });
+      const a = ackFin(c);
+      if (toWait) {
+        // The app reads end-of-stream, then closes its own side after its processing delay.
+        schedule(now + (t.devices[dev]?.appResponseNs ?? 0), () => {
+          if (ep(dev).tcpState === 'CLOSE-WAIT') activeClose(dev, a);
+        });
+      } else armTimeWait(dev, a);
+      return;
     }
+    if (seqAdd(finSeq, 1) === rcv && (st === 'CLOSE-WAIT' || st === 'LAST-ACK' || st === 'TIME-WAIT')) {
+      // Retransmitted FIN: our ACK was lost. Re-ACK; TIME-WAIT restarts its timer (RFC 9293 §3.10.7.4).
+      const c = emit({
+        device: dev, direction: 'in', layer: 'transport', type: 'discard', tag: 'tcp:duplicate-fin', packetId: pid, causeId,
+        explainKey: 'tcp.dup-fin', explainArgs: { seq: finSeq, state: st },
+        effects: [{ k: 'packet-patch', id: pid, patch: { status: 'discarded' } }],
+      });
+      const a = ackFin(c);
+      if (st === 'TIME-WAIT') armTimeWait(dev, a);
+      return;
+    }
+    if (st === 'FIN-WAIT-1') return ignored(dev, pid, causeId, 'FIN before our FIN was acknowledged: simultaneous close (CLOSING) is NOT BUILT');
+    return ignored(dev, pid, causeId, `unexpected FIN seq ${finSeq}`);
+  }
+
+  function armTimeWait(dev: string, causeId: string | null) {
+    const prev = ep(dev).timers['time-wait'];
+    const gen = (prev?.generation ?? 0) + 1;
+    const twNs = cfg.close.timeWaitMs * NS_PER_MS;
+    emit({
+      device: dev, direction: 'local', layer: 'transport', type: 'timer-set', tag: 'timer:set:time-wait', causeId,
+      explainKey: prev ? 'timer.time-wait.restart' : 'timer.time-wait', explainArgs: { ms: cfg.close.timeWaitMs, gen },
+      transition: { machine: 'timer', from: prev?.armed ? 'armed' : 'idle', to: 'armed' },
+      effects: [{ k: 'timer', device: dev, name: 'time-wait', timer: { generation: gen, armed: true, deadlineMs: ms(now + twNs), retries: 0 } }],
+    });
+    schedule(
+      now + twNs,
+      () => {
+        const tm = ep(dev).timers['time-wait'];
+        if (!tm) return;
+        const id = emit({
+          device: dev, direction: 'local', layer: 'transport', type: 'timer-fire', tag: 'timer:fire:time-wait',
+          explainKey: 'timer.time-wait.fire', explainArgs: { ms: cfg.close.timeWaitMs },
+          transition: { machine: 'timer', from: 'armed', to: 'expired' },
+          effects: [{ k: 'timer', device: dev, name: 'time-wait', timer: { ...tm, armed: false, deadlineMs: null } }],
+        });
+        tcpState(dev, 'CLOSED', {}, id, 'tcp.closed.time-wait', { ms: cfg.close.timeWaitMs });
+      },
+      live(dev, gen, 'time-wait'),
+    );
   }
 
   function deliver(pid: string, dev: string, payload: Uint8Array, app: string, causeId: string | null) {
@@ -641,18 +764,30 @@ export function simulate(input: SimConfig): SimRun {
     const delay = t.devices[dev]?.appResponseNs ?? 0;
     schedule(now + delay, () => {
       const server = dev === t.server;
-      const willReply = server && cfg.reply.enabled && ep(dev).app !== 'responded';
+      const me = ep(dev);
+      const willReply = server && (isHttp || cfg.reply.enabled) && me.app !== 'responded';
+      const text = new TextDecoder().decode(Uint8Array.from(me.recvBuffer));
+      // HTTP mode: the server's in-memory session table decides; the client stores any Set-Cookie in its demo jar.
+      const h = isHttp && server && me.session ? handleHttp(text, me.session.known, cfg.seed) : null;
+      const setCookie = isHttp && !server ? cookieValue(parseHttp(text)?.headers['set-cookie']) : null;
+      const sessionPatch: SessionState | null = h
+        ? { known: h.known, verdict: h.verdict, cookieSent: h.cookieSent, issued: h.issued }
+        : setCookie !== null && me.session
+          ? { ...me.session, known: [setCookie], issued: setCookie }
+          : null;
       const id = emit({
         device: dev, direction: 'local', layer: 'app', type: 'app-process', tag: 'app:processed', packetId: pid, causeId,
-        explainKey: willReply ? 'app.processed.reply' : server ? 'app.processed.noreply' : 'app.processed',
-        explainArgs: { device: dev, app, delayMs: round(ms(delay)) },
-        transition: server ? { machine: 'app', from: ep(dev).app, to: 'processed' } : null,
+        explainKey: h ? `http.${h.verdict}` : setCookie !== null ? 'http.cookie-stored' : willReply ? 'app.processed.reply' : server ? 'app.processed.noreply' : 'app.processed',
+        explainArgs: { device: dev, app, delayMs: round(ms(delay)), cookie: h?.cookieSent ?? 'none', issued: h?.issued ?? setCookie ?? '' },
+        transition: server ? { machine: 'app', from: me.app, to: 'processed' } : null,
         effects: [
           { k: 'packet-patch', id: pid, patch: { rx: { transport: 'accepted', app: 'processed' } } },
           ...(server ? [{ k: 'endpoint' as const, device: dev, patch: { app: 'processed' as const } }] : []),
+          ...(sessionPatch ? [{ k: 'endpoint' as const, device: dev, patch: { session: sessionPatch } }] : []),
         ],
       });
-      if (willReply) appWrite(dev, utf8(cfg.reply.text), true, id);
+      if (willReply) appWrite(dev, h ? utf8(h.response) : utf8(cfg.reply.text), true, id);
+      else if (!server) tryClose(dev, id);
     });
   }
 
@@ -664,9 +799,10 @@ export function simulate(input: SimConfig): SimRun {
       const n = seqAdd(nxt, -una);
       // One outstanding segment at a time: either our SYN (SND.UNA = ISS) or our data.
       const synAcked = una === me.iss;
+      const finAcked = me.tcpState === 'FIN-WAIT-1' || me.tcpState === 'LAST-ACK';
       const id = emit({
         device: dev, direction: 'in', layer: 'transport', type: 'ack', tag: 'ack', packetId: pid, causeId,
-        explainKey: 'ack.new', explainArgs: { ack, n, what: synAcked ? 'the SYN' : `${n} B of data` },
+        explainKey: 'ack.new', explainArgs: { ack, n, what: synAcked ? 'the SYN' : finAcked ? 'the FIN' : `${n} B of data` },
         // Queued app data stays buffered when only the SYN is acknowledged.
         effects: [{ k: 'endpoint', device: dev, patch: { sendBuffer: synAcked ? me.sendBuffer : [], sndUna: ack } }],
       });
@@ -681,8 +817,8 @@ export function simulate(input: SimConfig): SimRun {
   }
 
   // ---------- timers (generation tokens; TCP only) ----------
-  const live = (dev: string, gen: number) => () => {
-    const tm = state.endpoints[dev]?.timers.rto;
+  const live = (dev: string, gen: number, name = 'rto') => () => {
+    const tm = state.endpoints[dev]?.timers[name];
     return !!tm && tm.armed && tm.generation === gen;
   };
 
@@ -759,12 +895,12 @@ export function simulate(input: SimConfig): SimRun {
         device: t.client, direction: 'local', layer: 'transport', type: 'session', tag: 'session:start',
         explainKey: 'session.udp', explainArgs: { flow: flowId },
       });
-      appWrite(t.client, utf8(cfg.request), false, id);
+      appWrite(t.client, request, false, id);
       return;
     }
     // Server passive open, client app writes (queued), client active open with SYN.
     const listen = tcpState(t.server, 'LISTEN', {}, null, 'tcp.listen', { port: sPort });
-    appWrite(t.client, utf8(cfg.request), false, listen);
+    if (request.length > 0) appWrite(t.client, request, false, listen); // empty: orderly no-data close
     const iss = cfg.tcp.isnClient;
     const c = emit({
       device: t.client, direction: 'local', layer: 'transport', type: 'session', tag: 'tcp:connect',

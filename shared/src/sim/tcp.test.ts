@@ -63,7 +63,7 @@ describe('TCP handshake + one data segment per direction (teaching ISNs 1000/500
       const before = run.timeline.at(e.index - 1).endpoints[e.device]?.sndNxt ?? 0;
       const after = run.timeline.at(e.index).endpoints[e.device]?.sndNxt ?? 0;
       const kind = run.timeline.final.packets[e.packetId ?? '']?.kind;
-      const expected = { syn: 1, 'syn-ack': 1, data: 5, response: 5, 'hs-ack': 0, ack: 0, 'response-ack': 0 }[kind ?? 'ack'];
+      const expected = { syn: 1, 'syn-ack': 1, data: 5, response: 5, 'hs-ack': 0, ack: 0, 'response-ack': 0, 'fin-client': 1, 'fin-server': 1, 'ack-fin-client': 0, 'ack-fin-server': 0 }[kind ?? 'ack'];
       expect((after - before + 2 ** 32) % 2 ** 32, `${kind}`).toBe(expected);
       expect(e.explainArgs.consumes).toBe(expected);
     }

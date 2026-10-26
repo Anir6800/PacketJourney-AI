@@ -38,11 +38,19 @@ export function TcpCards({ run, s, ev }: { run: SimRun; s: SimState; ev: Simulat
               <dd data-testid={`rcv-nxt-${e.device}`}>{v(e.rcvNxt)}</dd>
               <dt>Send buffer</dt>
               <dd>{e.sendBuffer.length} B unacked/queued</dd>
+              {e.timers['time-wait'] && (
+                <>
+                  <dt>TIME-WAIT</dt>
+                  <dd data-testid={`time-wait-${e.device}`}>
+                    {e.timers['time-wait'].armed ? `armed until ${e.timers['time-wait'].deadlineMs} ms` : 'expired'} · educational, not an OS default
+                  </dd>
+                </>
+              )}
             </dl>
           </div>
         ))}
       </div>
-      <ol className="tcp-diagram mono" aria-label="TCP states (open/handshake subset; close states NOT BUILT)">
+      <ol className="tcp-diagram mono" aria-label="TCP states (modelled subset; simultaneous close CLOSING NOT BUILT)">
         {TCP_STATES.map((st) => {
           const here = eps.filter((e) => e.tcpState === st).map((e) => e.device);
           return (

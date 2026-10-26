@@ -46,7 +46,7 @@ export const TransportConfig = z.discriminatedUnion('protocol', [
 ]);
 export type TransportConfig = z.infer<typeof TransportConfig>;
 
-export const PacketKind = z.enum(['syn', 'syn-ack', 'hs-ack', 'data', 'ack', 'response', 'response-ack']);
+export const PacketKind = z.enum(['syn', 'syn-ack', 'hs-ack', 'data', 'ack', 'response', 'response-ack', 'fin-client', 'ack-fin-client', 'fin-server', 'ack-fin-server']);
 export type PacketKind = z.infer<typeof PacketKind>;
 
 // Only `loss` has engine behaviour (phase 03, for bounded retry tests). The rest are NOT BUILT.

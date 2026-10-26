@@ -24,3 +24,5 @@ export * from './sim/explain.ts';
 export * from './sim/run.ts';
 export * from './sim/validate.ts';
 export * from './sim/tcp.ts';
+export * from './sim/http.ts';
+export * from './sim/session.ts';

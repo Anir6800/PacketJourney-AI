@@ -11,6 +11,7 @@ const W = 760;
 const NODE_W = 120;
 const KIND_LABEL: Record<string, string> = {
   syn: 'SYN', 'syn-ack': 'SYN-ACK', 'hs-ack': 'ACK', data: 'REQ', response: 'REPLY', ack: 'ACK', 'response-ack': 'ACK',
+  'fin-client': 'FIN', 'ack-fin-client': 'ACK', 'fin-server': 'FIN', 'ack-fin-server': 'ACK',
 };
 
 /** How many layers wrap the packet at this moment (1 = app data only … 4 = full frame). */

@@ -25,7 +25,9 @@ Links: L1 A–R1 100 Mb/s 500 ns; L2 R1–R2 10 Mb/s 2 ms; L3 R2–B 100 Mb/s 50
 
 ## TCP connect and data (phase 05)
 
-Scoped state machine (`shared/src/sim/tcp.ts`, RFC 9293 §3.3.2): CLOSED, LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED and the five transitions between them. Every `tcp:state:*` event is checked against that table; the UI diagram renders the same table. Close states are NOT BUILT.
+Scoped state machine (`shared/src/sim/tcp.ts`, RFC 9293 §3.3.2): CLOSED, LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED and the five transitions between them. Phase 07 adds the normal close: FIN-WAIT-1, FIN-WAIT-2, CLOSE-WAIT, LAST-ACK, TIME-WAIT and their transitions (RFC 9293 §3.6 / Figure 5). Every `tcp:state:*` event is checked against that table; the UI diagram renders the same table. Each FIN consumes one sequence number; TIME-WAIT expiry is an EDUCATIONAL configured timer (default 400 ms, not 2×MSL). Simultaneous close (CLOSING) and RST are NOT BUILT.
+
+**HTTP over TCP (phase 07):** illustrative HTTP/1.1 messages (RFC 9112 syntax: request line, headers, CRLF separators, empty line; RFC 9110 semantics), `Content-Length` = UTF-8 byte length of the body, cookies per RFC 6265 (`Set-Cookie` on the first response, `Cookie` on a later request). The server app's in-memory table decides recognized/unrecognized. The session spans two TCP connections (different client ports); sequence numbers cover every actual HTTP byte. No session-layer header exists; HTTP is unencrypted; TLS NOT BUILT; demo ids are not credentials. UDP: raw echo only.
 
 **Teaching ISNs:** client 1000, server 5000 (configurable, unsigned 32-bit). They are deliberately readable, **not** the unpredictable ISNs RFC 9293 §3.4.1 / RFC 6528 require. All sequence arithmetic is modulo 2^32 (tested at 4294967295 → 0).
 

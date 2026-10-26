@@ -39,9 +39,16 @@ const net24 = (ip: string) => ip.split('.').slice(0, 3).join('.');
 export function validateSimConfig(c: SimConfig): ConfigIssue[] {
   const out: ConfigIssue[] = [];
   const add = (field: string, message: string | null) => message && out.push({ field, message });
+  const http = c.payloadMode === 'http';
+  if (http && c.protocol !== 'TCP')
+    add('payloadMode', 'HTTP/session mode needs TCP: HTTP/1.1 runs over a reliable, ordered byte stream. UDP here supports raw echo only.');
+  // An empty raw message is allowed only as the orderly no-data close (TCP with close enabled).
+  const noDataClose = c.request === '' && c.protocol === 'TCP' && c.close.enabled;
   const req = checkPayload(c.request);
-  if (!req.ok) add('request', req.error);
-  if (c.reply.enabled) {
+  if (!http && !req.ok && !noDataClose) add('request', req.error);
+  if (c.close.enabled && (!Number.isInteger(c.close.timeWaitMs) || c.close.timeWaitMs < 1 || c.close.timeWaitMs > 2000))
+    add('close.timeWaitMs', 'Educational TIME-WAIT: 1–2000 ms of virtual time (real 2×MSL is minutes and would dwarf the run).');
+  if (!http && c.reply.enabled) {
     const rep = checkPayload(c.reply.text);
     if (!rep.ok) add('reply.text', rep.error);
   }

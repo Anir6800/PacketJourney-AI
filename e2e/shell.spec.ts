@@ -491,3 +491,46 @@ test('core app runs with AI server down', async ({ page }) => {
   const problems = gsapWarnings.splice(0);
   expect(problems.every((p) => p.includes('net::ERR_FAILED'))).toBe(true);
 });
+
+test('Close + HTTP session: FIN states, cookie survives connection A, B recognized; UDP disables HTTP', async ({ page }) => {
+  await skipBoot(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.getByRole('group', { name: 'Protocol' }).getByRole('button', { name: 'TCP' }).click();
+
+  // Raw close: full close sequence and educational TIME-WAIT.
+  await page.getByLabel('Close the connection after the exchange').check();
+  await runBtn(page).click();
+  const t = await tags(page);
+  const order = ['tcp:state:FIN-WAIT-1', 'tcp:state:CLOSE-WAIT', 'tcp:state:FIN-WAIT-2', 'tcp:state:LAST-ACK', 'tcp:state:TIME-WAIT', 'timer:fire:time-wait'];
+  for (let i = 1; i < order.length; i++) expect(t.indexOf(order[i - 1] ?? ''), order[i]).toBeLessThan(t.indexOf(order[i] ?? ''));
+  await expect(page.getByTestId('tcp-state-A')).toHaveText('CLOSED');
+  await expect(page.getByTestId('tcp-state-B')).toHaveText('CLOSED');
+  await expect(page.getByTestId('time-wait-A')).toContainText('educational');
+
+  // HTTP session demo.
+  await page.locator('#payload-mode').selectOption('http');
+  await runBtn(page).click();
+  const panel = page.getByTestId('session-panel');
+  await expect(panel.getByTestId('session-verdict')).toHaveText('unrecognized');
+  await expect(panel.getByTestId('http-request')).toContainText('GET / HTTP/1.1␍␊');
+  await expect(panel.getByTestId('http-response')).toContainText('Content-Length: 43');
+  const issued = (await panel.getByTestId('session-issued').textContent()) ?? '';
+  expect(issued).toMatch(/^demo-[0-9a-f]{8}$/);
+  await expect(panel.getByTestId('tuple-b')).toHaveText('192.0.2.10:50001 ↔ 192.0.2.20:7007');
+  await panel.getByRole('button', { name: 'Connection B' }).click();
+  await expect(panel.getByTestId('session-verdict')).toHaveText('recognized');
+  await expect(panel.getByTestId('cookie-sent')).toHaveText(issued);
+  await expect(page.getByTestId('four-tuple')).toHaveText('192.0.2.10:50001 ↔ 192.0.2.20:7007');
+
+  await page.locator('#cookie-b').selectOption('invalid');
+  await runBtn(page).click();
+  await panel.getByRole('button', { name: 'Connection B' }).click();
+  await expect(panel.getByTestId('session-verdict')).toHaveText('unrecognized');
+
+  // UDP: HTTP option disabled with a reason; mode falls back to raw.
+  await page.getByRole('group', { name: 'Protocol' }).getByRole('button', { name: 'UDP' }).click();
+  await expect(page.locator('#payload-mode')).toHaveValue('raw');
+  await expect(page.locator('#payload-mode option[value=http]')).toBeDisabled();
+  await expect(page.getByTestId('payload-mode-hint')).toContainText('disabled for UDP');
+});

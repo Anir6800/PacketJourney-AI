@@ -1,5 +1,23 @@
 # Test Evidence
 
+## Phase 07 — 2026-10-26
+
+Command: `npm run verify` → typecheck 0, lint 0, vitest **189 passed** (8 files; new `close.test.ts` 21), build ok (initial **134.21 kB gzip**), secrets clean, Playwright **21 passed** (second run; see repair log 3).
+
+`close.test.ts`: Hello/World + close: A CLOSED→SYN-SENT→ESTABLISHED→FIN-WAIT-1→FIN-WAIT-2→TIME-WAIT→CLOSED, B …→CLOSE-WAIT→LAST-ACK→CLOSED, all in `TCP_TRANSITIONS`; FIN {1006, 5006, ACK+FIN}, ACK {5006, 1007}, FIN {5006, 1007}, final ACK {1007, 5007}; final SND/RCV 1007/5007/5007/1007; TIME-WAIT fire − set = 400 ms, server CLOSED before it, end complete; client closes after its app:processed; close disabled → ESTABLISHED, no FIN; routed fixture same paths. No-data close: same paths, no data segment, FIN 1001/5001, server FIN 5001/1002, final ACK 1002/5002; empty message valid only as TCP + close. Lost final ACK → 1 server retransmit, `tcp:duplicate-fin`, 2 TIME-WAIT sets, 1 fire; lost client FIN → 1 retransmit; lost ACK of client FIN → server FIN+ACK path still reaches TIME-WAIT; TIME-WAIT 0 rejected. HTTP: exact CRLF request; Content-Length = UTF-8 bytes = chars + 2 (em dash); table missing→issue, known→recognized, unknown→unrecognized. Session: A issues `demo-…`, client jar holds it; B other client port, same server port, fresh handshake, recognized with cookie = issued; missing / invalid → unrecognized; per connection data seq = ISN+1, length = HTTP request bytes (≠ 5), FIN seq/ack cover request/response bytes, Content-Length = body bytes; UDP + HTTP → validation `payloadMode`, `simulate` throws; deterministic.
+
+E2E `Close + HTTP session…`: close checkbox → tag order FIN-WAIT-1 < CLOSE-WAIT < FIN-WAIT-2 < LAST-ACK < TIME-WAIT < timer:fire:time-wait; both cards CLOSED; TIME-WAIT row "educational"; HTTP mode → A verdict unrecognized, request "GET / HTTP/1.1␍␊", response "Content-Length: 43", issued `demo-xxxxxxxx`, tuple B 192.0.2.10:50001 ↔ 192.0.2.20:7007; B → recognized, cookie sent = issued, four-tuple 50001; invalid cookie → unrecognized; UDP → mode raw, HTTP option disabled, hint "disabled for UDP".
+
+### Browser observations (Claude in Chrome, dev server, 2D view)
+- Connection A: "Cookie sent none · Server verdict unrecognized (red) · Set-Cookie issued demo-a676552f"; request 36 B `GET / HTTP/1.1␍␊ Host: 192.0.2.20␍␊ ␍␊`; response 172 B with `Content-Length: 43`, `Set-Cookie: sid=demo-a676552f; Path=/; HttpOnly`, body "Hello — new session demo-a676552f issued." (41 chars, 43 bytes). Journey ends "end:complete Run complete at 402.312 ms (SIMULATED)".
+- Connection B: request 70 B with `Cookie: sid=demo-a676552f` from port 50001; verdict recognized (green); response 130 B, Content-Length 50, no Set-Cookie. TCP cards: A ISS/IRS 2000/6000, SND.NXT 2072 (= 2001 + 70 + FIN), RCV.NXT 6132; both CLOSED; TIME-WAIT "expired · educational, not an OS default"; state pills include FIN-WAIT-1 … TIME-WAIT and 12 transition rows.
+- UDP: HTTP option disabled, hint shown, mode reset to raw.
+
+### Repair log (phase 07)
+1. An explain template used an ASCII apostrophe inside a single-quoted string → parse error; replaced with ’.
+2. Routed close test used the wrong device names (topology ids are A/B on every template) → fixed the test.
+3. First `npm run verify`: the boot test (`waitForFunction` 4 s wall clock) failed. Isolated: 1/3 pass; at stashed HEAD 3/3; with the phase 07 changes again 9/9; second full verify 21/21. Suspected cold Vite transform after the source change. Recorded as an open issue; assertion unchanged.
+
 ## Phase 06 — 2026-10-26
 
 Command: `npm run verify` → typecheck 0, lint 0, vitest **168 passed** (7 files; new `routed.test.ts` 15), build ok (initial **129.51 kB gzip** after D-041; 148.23 kB before), secrets clean, Playwright **20 passed**.

@@ -1,7 +1,9 @@
-// Scoped TCP connection state machine (RFC 9293 §3.3.2, Figure 5): open/handshake states only.
-// Close states (FIN-WAIT-1 … TIME-WAIT) are NOT BUILT yet. The engine and the UI diagram both read this table.
+// Scoped TCP connection state machine (RFC 9293 §3.3.2, Figure 5): open/handshake plus the normal
+// active/passive close. Simultaneous close (CLOSING) and RST are NOT BUILT. The engine and the UI diagram both read this table.
 
-export const TCP_STATES = ['CLOSED', 'LISTEN', 'SYN-SENT', 'SYN-RECEIVED', 'ESTABLISHED'] as const;
+export const TCP_STATES = [
+  'CLOSED', 'LISTEN', 'SYN-SENT', 'SYN-RECEIVED', 'ESTABLISHED', 'FIN-WAIT-1', 'FIN-WAIT-2', 'CLOSE-WAIT', 'LAST-ACK', 'TIME-WAIT',
+] as const;
 export type TcpState = (typeof TCP_STATES)[number];
 
 export const TCP_TRANSITIONS = [
@@ -10,6 +12,13 @@ export const TCP_TRANSITIONS = [
   { from: 'LISTEN', to: 'SYN-RECEIVED', on: 'rcv SYN', send: 'SYN, ACK' },
   { from: 'SYN-SENT', to: 'ESTABLISHED', on: 'rcv SYN, ACK', send: 'ACK' },
   { from: 'SYN-RECEIVED', to: 'ESTABLISHED', on: 'rcv ACK of SYN', send: '—' },
+  { from: 'ESTABLISHED', to: 'FIN-WAIT-1', on: 'CLOSE', send: 'FIN' },
+  { from: 'ESTABLISHED', to: 'CLOSE-WAIT', on: 'rcv FIN', send: 'ACK' },
+  { from: 'FIN-WAIT-1', to: 'FIN-WAIT-2', on: 'rcv ACK of FIN', send: '—' },
+  { from: 'CLOSE-WAIT', to: 'LAST-ACK', on: 'CLOSE', send: 'FIN' },
+  { from: 'FIN-WAIT-2', to: 'TIME-WAIT', on: 'rcv FIN', send: 'ACK' },
+  { from: 'LAST-ACK', to: 'CLOSED', on: 'rcv ACK of FIN', send: '—' },
+  { from: 'TIME-WAIT', to: 'CLOSED', on: 'TIME-WAIT timer expires', send: '—' },
 ] as const satisfies readonly { from: TcpState; to: TcpState; on: string; send: string }[];
 
 export function checkTransition(from: string, to: TcpState): void {
