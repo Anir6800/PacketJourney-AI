@@ -87,7 +87,7 @@ Status: `planned` / `implemented` / `verified` / `blocked`.
 | F0.7 | `/api/health` schema-valid; foreign origins rejected | vitest `server/src/app.test.ts` | verified |
 | F0.8 | Core app runs with AI server down | e2e `core app runs with AI server down` | verified |
 | F0.9 | No API key in web source/build | `npm run check:secrets` | verified |
-| F0.10 | WebGL context loss → 2D fallback | handler implemented; no automated test yet | implemented |
+| F0.10 | WebGL context loss → 2D fallback and recovery | `e2e/stage3d.spec.ts`: real `WEBGL_lose_context` loss/restore | verified |
 | D1.1 | Layout 1440/1280/390 without overflow or clipping | e2e `layout WxH` ×3 | verified |
 | D1.2 | Boot ≤ 2.5 s, skippable by key/click, once per session, once under StrictMode | e2e `boot:` ×2 | verified |
 | D1.3 | Keyboard reaches mode switch, tabs, inspector (panel and drawer) | e2e `keyboard reaches…`, `1280: inspector drawer` | verified |
@@ -95,7 +95,7 @@ Status: `planned` / `implemented` / `verified` / `blocked`.
 | D1.5 | Reduced motion: final states, no tweens, grid drift off | e2e `reduced motion…` | verified |
 | D1.6 | No GSAP console warnings | e2e afterEach console filter | verified |
 | D1.7 | TypedConsole: Enter completes; one announcement per line | e2e `TypedConsole…` | verified |
-| D1.8 | Grid drift pauses when tab hidden | CSS `[data-hidden=true]`; no automated test | implemented |
+| D1.8 | Grid drift pauses when tab hidden | `e2e/motion.spec.ts` hidden-tab CSS animation state | verified |
 | E3.1 | Same config + seed → identical events/bytes | `sim.test.ts` determinism ×4 templates/protocols; e2e `run lifecycle` | verified |
 | E3.2 | Equal timestamps keep order; time never decreases | `sim.test.ts` scheduler + ordering | verified |
 | E3.3 | New run cancels prior state; config frozen; dirty draft needs explicit Run/Reset | `sim.test.ts` run lifecycle; e2e `run lifecycle` | verified |
@@ -109,34 +109,34 @@ Status: `planned` / `implemented` / `verified` / `blocked`.
 | U4.4 | UDP has no handshake/ACK/timer events; reply can be disabled | `udp.test.ts`; e2e | verified |
 | U4.5 | Link + transport byte maps equal encoded buffers | `udp.test.ts` byte maps; e2e layer-card bytes | verified |
 | U4.6 | 2D journey with layer cards, two receiver statuses, expandable event details | e2e `UDP slice…` | verified |
-| U4.7 | 2D journey stays feature-complete as the WebGL fallback in later phases | per-phase e2e (TCP cards added in 05) | implemented |
+| U4.7 | 2D journey stays feature-complete as the WebGL fallback in later phases | `e2e/stage3d.spec.ts` 2D/missing WebGL/context loss parity; Story/Director e2e | verified |
 | T5.1 | Exact SYN/SYN-ACK/ACK/data/ACK/reply/ACK numbers for Hello/World | `tcp.test.ts`; e2e `TCP: handshake…` | verified |
 | T5.2 | Unicode byte counts drive SEQ/ACK; modulo 2^32 | `tcp.test.ts` | verified |
 | T5.3 | No delivery before ESTABLISHED; pure ACK consumes no sequence space | `tcp.test.ts` | verified |
 | T5.4 | Transport ACK distinct from app processing | `tcp.test.ts`; e2e | verified |
 | T5.5 | State cards (both endpoints, four-tuple) and diagram agree with headers and log | e2e `TCP: handshake…` | verified |
 | T5.6 | Switching protocol clears TCP state | `tcp.test.ts`; e2e | verified |
-| T5.7 | TCP close (FIN, TIME-WAIT) | — | planned |
+| T5.7 | TCP close (FIN, TIME-WAIT) | `shared/src/sim/close.test.ts`; `e2e/shell.spec.ts` close/HTTP session | verified |
 | R6.1 | Routed fixture: 3 link traversals, 2 TTL decrements | `routed.test.ts`; e2e `Routed…` | verified |
 | R6.2 | Per hop new MACs/FCS; endpoint IPs/ports unchanged; IP checksum changes; transport checksum valid and unchanged | `routed.test.ts` | verified |
 | R6.3 | Valid route tables incl. reverse routes; reply follows reverse route | `routed.test.ts` | verified |
 | R6.4 | TTL 1 expires at R1, no delivery, no ICMP | `routed.test.ts`; e2e | verified |
 | R6.5 | Scope overlays process/host/hop; ARP assumption shown; TCP end-to-end explained | e2e `Routed…` | verified |
-| R6.6 | ARP exchange, ICMP generation | — | planned (NOT BUILT) |
-| C1 | TCP/UDP choice | engine + UI tests | planned |
+| R6.6 | ARP exchange, ICMP generation | NOT BUILT; prepopulated ARP and local TTL drop are explicit in `routed.test.ts` | blocked |
+| C1 | TCP/UDP choice | `tcp.test.ts`, `udp.test.ts`; `e2e/shell.spec.ts` switching | verified |
 | C2 | UTF-8/hex/binary | `shared/src/engine.test.ts` UTF-8 suite; e2e `payload validation` | verified |
 | C3 | Headers & checksums (single segment/datagram, no options) | engine tests: RFC 1071 §3, IPv4 0xB861 vector, CRC-32 check values, reference checksum, bit flips, field map; e2e `Headers: selecting a field…` | verified |
-| C4 | Encapsulation/decapsulation | event-sequence tests | planned |
-| C5 | TCP connect/data/close | state-machine transition tests vs RFC 9293 | planned |
-| C6 | Replies & independent sessions | multi-session reducer tests | planned |
-| C7 | Delivery scopes | scenario tests per scope | planned |
-| C8 | Routed forwarding | TTL/checksum/MAC rewrite per hop tests | planned |
-| C9 | Playback | clock/seek determinism tests + e2e | planned |
-| C10 | AI tutor | server contract tests; offline e2e | planned |
-| C11 | Faults | seeded fault scenario tests | planned |
-| C12 | Predict/compare | comparison logic tests + e2e | planned |
-| S1 | Story Mode flow | e2e walkthrough | planned |
-| S2 | Lab Mode | e2e | planned |
+| C4 | Encapsulation/decapsulation | `sim.test.ts`, `udp.test.ts`, `story.test.ts`, `e2e/stage3d.spec.ts` | verified |
+| C5 | TCP connect/data/close (scoped model) | `tcp.test.ts`, `close.test.ts`; `e2e/shell.spec.ts` | verified |
+| C6 | Replies & independent sessions | `udp.test.ts`, `close.test.ts` A/B connection independence; simultaneous sessions NOT BUILT | implemented |
+| C7 | Delivery scopes | `routed.test.ts`; `e2e/shell.spec.ts` same-LAN/routed; loopback NOT BUILT | implemented |
+| C8 | Routed forwarding | `routed.test.ts` TTL/checksum/MAC rewrite and reverse path; `e2e/shell.spec.ts` | verified |
+| C9 | Playback | `motion.test.ts`; `e2e/motion.spec.ts` clock, speed, scrub, reset, Reduced | verified |
+| C10 | AI tutor | `server/src/explain.test.ts`, `web/src/tutor/tutor.test.ts`, `e2e/tutor.spec.ts` | verified |
+| C11 | Faults | `faults.test.ts`, `e2e/faults.spec.ts` loss/corrupt/delay; standalone duplication/reordering NOT BUILT | implemented |
+| C12 | Predict/compare | `compare.test.ts`, `practice.test.ts`, `e2e/compare.spec.ts` | verified |
+| S1 | Story Mode flow | `story.test.ts`, `e2e/story.spec.ts` routed TCP/UDP, captions and keyboard | verified |
+| S2 | Lab Mode | `e2e/shell.spec.ts` controls, inspector, headers, routing, close, layout | verified |
 | S3 | Director demo mode | `e2e/phase14.spec.ts` (offline 2D + real WebGL 3D completion, pause/jump/exit) | verified |
 | S4 | 2D fallback parity with 3D steps | same snapshot/Story beat drives both; e2e WebGL unavailable + context loss | verified |
 | P14.1 | Versioned config-only export/import; size/schema/version bounds; regenerate results | `scenario.test.ts`; `e2e/phase14.spec.ts` | verified |
@@ -144,3 +144,9 @@ Status: `planned` / `implemented` / `verified` / `blocked`.
 | P14.3 | Eight deterministic named presets and committed example files | `scenario.test.ts`; `e2e/phase14.spec.ts` | verified |
 | P14.4 | Director chapters/captions/controls, offline AI independence and automatic 2D fallback | `e2e/phase14.spec.ts`; existing Story/motion suites | verified |
 | P14.5 | Windows + macOS/Linux start instructions, print summary and assumptions help | command verification; e2e print-media assertion | verified |
+| P15.1 | Lockfile install and full engineering gate | `npm ci`; final `npm run verify` (245 Vitest, 55 Playwright, typecheck/lint/build/secrets) | verified |
+| P15.2 | Protocol arithmetic and deterministic invariants in the scoped model | `engine.test.ts`, `sim/*.test.ts`; independent vectors, Unicode, checksum, sequence, faults, routing, sessions | verified |
+| P15.3 | 3D pixels, scene parity, context loss and motion resets | `e2e/stage3d.spec.ts`, `e2e/motion.spec.ts`, `e2e/story.spec.ts` | verified |
+| P15.4 | Browser journeys, accessibility and inspected viewports | e2e suites; axe desktop/phone `e2e/phase15.spec.ts`; committed `docs/evidence/phase15/` screenshots | verified |
+| P15.5 | Production build loads 3D and forced 2D | local Vite preview + Playwright SwiftShader smoke, `TEST_EVIDENCE.md` | verified |
+| P15.6 | Bundle sizes and honest performance reporting | Vite build gzip output; no real-hardware timing taken, **NOT MEASURED** | verified |

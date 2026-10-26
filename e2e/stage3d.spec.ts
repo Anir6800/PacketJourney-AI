@@ -71,6 +71,27 @@ test('3D stage lazy-loads; same-LAN and routed entity counts and labels come fro
   expect(s.links.map((l) => l.label)).toEqual(['L1 · 192.0.2.0/24']);
   expect(s.labels).toEqual(expect.arrayContaining(['A · host', 'B · host', 'A.eth0 192.0.2.10/24\n02:00:00:00:0a:10']));
   expect(await page.evaluate(() => window.__pj.drawCalls)).toBeGreaterThan(0);
+  // Read the composited canvas screenshot: WebGL's drawing buffer is deliberately not preserved.
+  const png = (await page.locator('canvas').screenshot()).toString('base64');
+  const pixels = await page.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('2D pixel reader unavailable');
+    ctx.drawImage(image, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const colors = new Set<string>();
+    for (let y = 0; y < canvas.height; y += 20) for (let x = 0; x < canvas.width; x += 20) {
+      const i = (y * canvas.width + x) * 4;
+      colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+    }
+    return colors.size;
+  }, png);
+  expect(pixels, '3D canvas has visible, varied pixels').toBeGreaterThan(8);
 
   await routed(page);
   await page.waitForTimeout(200);
@@ -188,13 +209,17 @@ test('View 2D and missing WebGL show the 2D journey with the same steps', async 
 test('context loss falls back to 2D with a visible note; restore brings 3D back', async ({ page }) => {
   await page.goto('/');
   await ready(page);
-  await page.evaluate(() => {
-    const c = document.querySelector('canvas');
-    c?.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  const extension = await page.evaluate(() => {
+    const loss = document.querySelector('canvas')?.getContext('webgl2')?.getExtension('WEBGL_lose_context');
+    if (!loss) return false;
+    (window as Window & { restoreGl?: () => void }).restoreGl = () => loss.restoreContext();
+    loss.loseContext();
+    return true;
   });
+  expect(extension, 'SwiftShader exposes WEBGL_lose_context').toBe(true);
   await expect(page.getByTestId('stage-2d')).toContainText('WebGL context lost');
   await expect(page.locator('.viewport-3d')).toBeHidden();
-  await page.evaluate(() => document.querySelector('canvas')?.dispatchEvent(new Event('webglcontextrestored')));
+  await page.evaluate(() => (window as Window & { restoreGl?: () => void }).restoreGl?.());
   await expect(page.locator('.viewport-3d')).toBeVisible();
   await expect(page.getByTestId('stage-2d')).toHaveCount(0);
 });
@@ -240,15 +265,19 @@ for (const vp of [
     await page.locator('.viewport').screenshot({ path: `test-results/stage3d-${vp.width}.png` });
     const box = await page.locator('.viewport').boundingBox();
     if (!box) throw new Error('no viewport');
+    const cue = vp.width === 390 ? await page.getByTestId('cue-overlay').boundingBox() : null;
     // Every device label must be on screen inside the stage.
     for (const id of ['A · host', 'R1 · router', 'R2 · router', 'B · host']) {
-      const lb = await page.locator('.label3d-device', { hasText: id }).boundingBox();
+      const label = page.locator('.label3d-device', { hasText: id });
+      await expect(label, id).toBeVisible();
+      const lb = await label.boundingBox();
       expect(lb, id).not.toBeNull();
       if (!lb) continue;
       expect(lb.x).toBeGreaterThanOrEqual(box.x - 1);
       expect(lb.x + lb.width).toBeLessThanOrEqual(box.x + box.width + 1);
       expect(lb.y).toBeGreaterThanOrEqual(box.y - 1);
       expect(lb.y + lb.height).toBeLessThanOrEqual(box.y + box.height + 1);
+      if (cue) expect(cue.x + cue.width <= lb.x || lb.x + lb.width <= cue.x || cue.y + cue.height <= lb.y || lb.y + lb.height <= cue.y, `${id} clear of mobile cue`).toBe(true);
     }
   });
 }

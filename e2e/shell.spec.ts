@@ -385,7 +385,8 @@ test('keyboard reaches mode switch, tabs and inspector (1440)', async ({ page })
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   const seen = new Set<string>();
-  for (let i = 0; i < 40; i++) {
+  // Save/preset and fault controls precede the stage; traverse them to reach its tabs.
+  for (let i = 0; i < 120 && !seen.has('tab'); i++) {
     await page.keyboard.press('Tab');
     seen.add(
       await page.evaluate(() => {

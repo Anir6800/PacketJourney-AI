@@ -23,6 +23,7 @@
     "verify": "npm run typecheck && npm run lint && npm test && npm run build && npm run check:secrets && npm run test:e2e"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.64.1",
     "@types/node": "26.6.5",

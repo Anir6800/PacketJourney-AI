@@ -266,7 +266,6 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, 
               tabIndex={0}
               className="svg-node"
               data-testid={`svg-node-${d}`}
-              aria-label={`Select device ${d} (${dev?.kind ?? 'host'})`}
               aria-pressed={selectedDevice === d}
               onClick={() => onSelectDevice(d)}
               onKeyDown={(e) => {

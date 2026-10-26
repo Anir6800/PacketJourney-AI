@@ -1,5 +1,24 @@
 # Status
 
+## Phase 15 · Full engineering verification loop — COMPLETE (2026-10-27)
+
+### Completed
+- Audited the requirements matrix against executed Vitest/Playwright coverage; corrected stale planned entries and marked scoped omissions explicitly. Verified protocol vectors and invariants against the primary RFC sources listed in `PROTOCOL_MODEL.md`.
+- Added composited 3D pixel verification and real `WEBGL_lose_context` loss/recovery; axe WCAG A/AA scans at desktop and phone widths; hidden-tab grid animation check; mobile cue/device-label non-overlap assertion. Fixed the SVG device button's accessible name and a phone-stage label/cue collision found by opening the screenshot.
+- Repaired two browser-test timing assumptions exposed in a long SwiftShader run without relaxing their behavioral assertions. Checked the production build in 3D and forced 2D using local preview and Chromium; no console/page/network errors in that smoke run.
+
+### Commands and results
+- Updated-lockfile `npm ci`: exit 0, 338 packages, 0 reported vulnerabilities. Targeted browser checks: axe 1/1; real context restore and non-blank canvas 2/2; mobile screenshot 1/1; repaired keyboard/Story/hidden-tab 3/3.
+- Final `npm run verify` **exit 0**: typecheck, lint, Vitest **245/245** (19 files), production build, secrets scan, Playwright **55/55** in **6.3 min**. An earlier post-edit run had 53/55 browser tests due to two stale test timing assumptions; both were repaired, passed focused reruns, and passed in this final full run. Exact evidence and repair log: `TEST_EVIDENCE.md`.
+- Production build: initial entry 146.48 kB gzip; lazy 3D chunk 282.91 kB gzip. Real-hardware frame timing **NOT MEASURED**.
+- Five inspected screenshots are retained in `docs/evidence/phase15/`; the final production preview smoke again passed 3D and forced 2D with no console, page or failed-request errors.
+
+### Open issues
+- Scoped omissions in `SPEC.md`: ARP/ICMP, loopback, simultaneous independent sessions and standalone duplication/reordering are NOT BUILT. The educational TCP model does not claim full RFC 9293 compliance.
+- Upstream `THREE.Clock` deprecation warning persists. Vite warns on the lazy 3D chunk's minified size; real-device frame timing is NOT MEASURED.
+
+## Next phase: **16**
+
 ## Phase 14 · Save, replay and Director mode — COMPLETE (2026-10-26)
 
 ### Completed

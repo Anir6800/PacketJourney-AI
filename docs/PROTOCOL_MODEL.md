@@ -1,6 +1,6 @@
 # Protocol Model
 
-What the engine simulates, how faithfully, and what it simplifies. Phase 02 built the encoders (`shared/src/`); state machines, routing, ARP and faults are still **NOT BUILT**.
+What the engine simulates, how faithfully, and what it simplifies. The encoders, scoped TCP/UDP state machines, routed forwarding, and targeted loss/delay/corruption faults are built. ARP exchanges, ICMP, RST, simultaneous close, and standalone duplication/reordering faults are **NOT BUILT**.
 
 ## Routed delivery and scopes (phase 06)
 
@@ -114,10 +114,10 @@ Modelled (configured): ACK, PSH, RST, SYN, FIN. Displayed-only, always 0, labell
 | Topic | Source |
 |---|---|
 | Layers | RFC 1122 *Requirements for Internet Hosts — Communication Layers* |
-| TCP | RFC 9293 *Transmission Control Protocol* (2022, obsoletes RFC 793) |
-| UDP | RFC 768 *User Datagram Protocol* |
-| IPv4 | RFC 791 *Internet Protocol* |
-| Checksum | RFC 1071 *Computing the Internet Checksum* |
+| TCP | [RFC 9293](https://www.rfc-editor.org/rfc/rfc9293.html) *Transmission Control Protocol* (2022, obsoletes RFC 793): byte sequence arithmetic, cumulative ACKs, SYN/FIN sequence space |
+| UDP | [RFC 768](https://www.rfc-editor.org/rfc/rfc768.html) *User Datagram Protocol*: length, pseudo-header checksum, zero on wire when disabled |
+| IPv4 | [RFC 791](https://www.rfc-editor.org/rfc/rfc791.html) *Internet Protocol*: total length, TTL and header-only checksum |
+| Checksum | [RFC 1071](https://www.rfc-editor.org/rfc/rfc1071.html) *Computing the Internet Checksum*: one's-complement sum and odd-byte padding |
 | ARP | RFC 826 *An Ethernet Address Resolution Protocol* |
 | Ethernet framing | IEEE 802.3 (Ethernet II / DIX type field) |
 | UTF-8 | RFC 3629 |
@@ -126,7 +126,7 @@ Modelled (configured): ACK, PSH, RST, SYN, FIN. Displayed-only, always 0, labell
 | ECN / DSCP | RFC 3168, RFC 2474 |
 | Ephemeral ports | RFC 6335 (49152–65535) |
 | RTO backoff | RFC 6298 §5.5 (doubling); RTO value itself is fixed, not §2 estimation |
-| Router forwarding | RFC 1812 §5.3.1 (TTL), §5.2.2 (checksum update) |
+| Router forwarding | [RFC 1812](https://www.rfc-editor.org/rfc/rfc1812.html) §5.3.1 (TTL), §5.2.2 (checksum update) |
 | Ethernet preamble/SFD/IFG sizes | IEEE 802.3 (7 + 1 bytes; 96 bit-time gap) |
 | CRC-32 check values | standard CRC-32/ISO-HDLC catalogue values ("123456789" → 0xCBF43926) |
 

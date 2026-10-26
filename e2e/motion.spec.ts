@@ -242,10 +242,13 @@ test('hidden tab pauses with a visible note; keyboard shortcuts are guarded in f
   });
   expect((await motion(page)).playing).toBe(false);
   await expect(page.getByTestId('hidden-pause')).toContainText('Paused: tab was hidden');
+  await expect(page.locator('html')).toHaveAttribute('data-hidden', 'true');
+  expect(await page.locator('.grid-plane').evaluate((el) => getComputedStyle(el).animationPlayState)).toBe('paused');
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     document.dispatchEvent(new Event('visibilitychange'));
   });
+  await expect(page.locator('html')).toHaveAttribute('data-hidden', 'false');
 
   // Space on the page toggles play; Space inside the message field types a space instead.
   await page.locator('body').click({ position: { x: 5, y: 5 } });
