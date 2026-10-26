@@ -145,6 +145,13 @@ export function App() {
   const [directorPlaying, setDirectorPlaying] = useState(false);
   const [practiceKey, setPracticeKey] = useState(0);
   const [contextLost, setContextLost] = useState(false);
+  // A real GPU loss the browser never restores would strand the app in 2D: remount a fresh canvas after a pause.
+  const [glKey, setGlKey] = useState(0);
+  useEffect(() => {
+    if (!contextLost) return;
+    const t = window.setTimeout(() => { setContextLost(false); setGlKey((k) => k + 1); }, 4000);
+    return () => window.clearTimeout(t);
+  }, [contextLost]);
   const [tab, setTab] = useState<Tab>('journey');
   const [ai, setAi] = useState<Ai>('checking');
   /** Field ids the tutor referenced: pulse once in the inspector (the key restarts the animation). */
@@ -684,7 +691,7 @@ export function App() {
           <Segmented label="Mode" value={mode} onChange={setAppMode} options={[{ value: 'story', label: 'Story' }, { value: 'lab', label: 'Lab' }, { value: 'director', label: 'Director' }]} />
           {mode !== 'director' && <Segmented label="Protocol" value={proto} onChange={setProto} options={[{ value: 'TCP', label: 'TCP' }, { value: 'UDP', label: 'UDP' }]} />}
           <Segmented label="Motion" value={motion} onChange={setMotion} options={[{ value: 'cinematic', label: 'Cinematic' }, { value: 'reduced', label: 'Reduced' }]} />
-          <Segmented label="View" value={view} onChange={setView} options={[{ value: '3d', label: '3D' }, { value: '2d', label: '2D' }]} />
+          <Segmented label="View" value={view} onChange={(v) => { setView(v); if (v === '3d') setContextLost(false); }} options={[{ value: '3d', label: '3D' }, { value: '2d', label: '2D' }]} />
           {drawer && (
             <button type="button" className="btn" aria-expanded={drawerOpen} aria-controls="inspector" onClick={() => setDrawerOpen((o) => !o)}>
               Inspector
@@ -789,6 +796,7 @@ export function App() {
                       <div className="viewport-3d" hidden={contextLost}>
                         <Suspense fallback={<Stage2D reason="Loading 3D stage… the 2D journey below is ready" packet={model.packet} />}>
                           <JourneyStage3D
+                            key={glKey}
                             model={model}
                             selected={sel}
                             onSelect={pick}
@@ -817,43 +825,47 @@ export function App() {
                     scope={beat?.scope ?? undefined}
                     fx={{ timers: model.timers, notice: model.notice }}
                   />
-                  <Ladder run={run} cues={cues} reduced={reduced} />
-                  <ol className="stack" aria-label="Layer stack (SIMULATED)">
-                    {stack.map((r) => (
-                      <li key={r.layer}>
-                        <button
-                          type="button"
-                          className="stack-row"
-                          style={{ '--layer': `var(--c-${r.layer})` } as React.CSSProperties}
-                          aria-pressed={!selectedField && sel.kind === 'layer' && selected === r.layer}
-                          onClick={() => pick({ kind: 'layer', layer: r.layer })}
-                        >
-                          <LayerGlyph layer={r.layer} />
-                          <span className="code mono">{LAYERS[r.layer].code}</span>
-                          <span className="name">{LAYERS[r.layer].name}</span>
-                          <span className="bytes mono">
-                            {r.added > 0 && `+${r.added} B · `}
-                            {r.total} B
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ol>
-                  <section aria-label="Payload bytes">
-                    <h3 className="hud-label">Payload · text / hex / binary</h3>
-                    <ol className="reps mono" data-testid="reps">
-                      {reps.map((r) => (
-                        <li key={r.byteStart} className="rep">
-                          <span className="rep-char">{r.char === ' ' ? '␠' : r.char}</span>
-                          <span className="rep-cp">U+{hex(r.codePoint, 4)}</span>
-                          <span className="rep-hex">{r.bytes.map((b) => hex(b)).join(' ')}</span>
-                          <span className="rep-bin">{r.bytes.map(bin).join(' ')}</span>
+                  {/* Story/Director keep the stage calm: secondary views fold away (Lab opens them by default). */}
+                  <details className="more" key={mode} open={mode === 'lab' || undefined}>
+                    <summary className="more-summary">More detail · ladder, layers, bytes, console, event log</summary>
+                    <Ladder run={run} cues={cues} reduced={reduced} />
+                    <ol className="stack" aria-label="Layer stack (SIMULATED)">
+                      {stack.map((r) => (
+                        <li key={r.layer}>
+                          <button
+                            type="button"
+                            className="stack-row"
+                            style={{ '--layer': `var(--c-${r.layer})` } as React.CSSProperties}
+                            aria-pressed={!selectedField && sel.kind === 'layer' && selected === r.layer}
+                            onClick={() => pick({ kind: 'layer', layer: r.layer })}
+                          >
+                            <LayerGlyph layer={r.layer} />
+                            <span className="code mono">{LAYERS[r.layer].code}</span>
+                            <span className="name">{LAYERS[r.layer].name}</span>
+                            <span className="bytes mono">
+                              {r.added > 0 && `+${r.added} B · `}
+                              {r.total} B
+                            </span>
+                          </button>
                         </li>
                       ))}
                     </ol>
-                  </section>
-                  <TypedConsole key={`${run.runId}:${lines.join('\n')}`} lines={lines} reduced={reduced} label="Encoding console" />
-                  <EventLog events={run.events} selected={selectedEvent} onSelect={selectEvent} />
+                    <section aria-label="Payload bytes">
+                      <h3 className="hud-label">Payload · text / hex / binary</h3>
+                      <ol className="reps mono" data-testid="reps">
+                        {reps.map((r) => (
+                          <li key={r.byteStart} className="rep">
+                            <span className="rep-char">{r.char === ' ' ? '␠' : r.char}</span>
+                            <span className="rep-cp">U+{hex(r.codePoint, 4)}</span>
+                            <span className="rep-hex">{r.bytes.map((b) => hex(b)).join(' ')}</span>
+                            <span className="rep-bin">{r.bytes.map(bin).join(' ')}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                    <TypedConsole key={`${run.runId}:${lines.join('\n')}`} lines={lines} reduced={reduced} label="Encoding console" />
+                    <EventLog events={run.events} selected={selectedEvent} onSelect={selectEvent} />
+                  </details>
                 </>
               )}
               {tab === 'headers' && (

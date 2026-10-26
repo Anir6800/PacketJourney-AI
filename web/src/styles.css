@@ -534,3 +534,29 @@ html[data-motion='reduced'] .glass { background-image: none; }
 .stage-2d-label { font: 9px var(--font-mono); fill: var(--c-text); letter-spacing: 0.04em; }
 /* The question form takes focus only to capture Enter/Backspace; its glass edge brightens instead of a heavy ring. */
 .story-minimal:focus { outline: none; border-color: rgba(255, 255, 255, 0.28); }
+
+/* ---------- Calm pass: fewer boxes inside boxes, quieter controls ---------- */
+.grid-bg .grid-plane { display: none; }
+.hud { padding: 8px 12px; }
+.hud-controls { gap: 6px; align-items: center; }
+.hud .btn { border-color: transparent; border-radius: 999px; }
+.seg { border-color: transparent; border-radius: 999px; background: rgba(255, 255, 255, 0.04); padding: 2px; }
+.seg button { border-radius: 999px; color: var(--c-muted); padding: 5px 12px; }
+.seg button[aria-pressed='true'] { color: var(--c-text); background: rgba(255, 255, 255, 0.12); box-shadow: none; }
+.btn:hover:not(:disabled), .seg button:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.3); box-shadow: none; color: var(--c-text); }
+.hud-label { letter-spacing: 0.1em; font-size: 0.68rem; }
+.badge { font-size: 0.64rem; padding: 1px 8px; }
+.tabs { background: transparent; padding: 0; border-bottom: 1px solid var(--c-hairline); border-radius: 0; }
+.tab-bar { background: var(--c-text); box-shadow: none; }
+.tab-panel.scrim { background: transparent; padding: 16px 0 0; }
+.stage-overlay { padding: 16px; gap: 16px; }
+.viewport { border-color: rgba(255, 255, 255, 0.06); border-radius: var(--radius); }
+/* Rendering tier stays available to assistive tech and tests, but is not visual noise. */
+.stage3d-fx { width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.stage-2d-label { font-size: 7px; fill: var(--c-muted); }
+.more { display: grid; gap: 16px; border-top: 1px solid var(--c-hairline); padding-top: 8px; }
+.more-summary { cursor: pointer; list-style: none; color: var(--c-muted); font-size: 0.85rem; padding: 8px 0; }
+.more-summary::-webkit-details-marker { display: none; }
+.more-summary::before { content: '+ '; font-family: var(--font-mono); }
+.more[open] > .more-summary::before { content: '− '; }
+.more-summary:hover { color: var(--c-text); }

@@ -677,6 +677,13 @@ export default function JourneyStage3D(p: Props) {
   }, []);
   const model = useMemo(() => (narrow ? columnLayout(p.model) : p.model), [narrow, p.model]);
   const [budgetMissed, setBudgetMissed] = useState(false);
+  // R3F forces a context loss on its own canvas when the stage unmounts (tab/view switch, new message):
+  // that is cleanup, not a GPU failure, so it must not flip the app into the 2D fallback.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
   useEffect(() => {
     if (!import.meta.env.DEV && import.meta.env.MODE !== 'test') return;
     debug.forceMaterialFallback = () => setBudgetMissed(true);
@@ -731,10 +738,12 @@ export default function JourneyStage3D(p: Props) {
           el.setAttribute('aria-label', '3D journey stage. Every object here has a 2D equivalent in the journey map and inspector below.');
           el.addEventListener('webglcontextlost', (e) => {
             e.preventDefault(); // allows restoration
+            if (!alive.current) return;
             debug.contextLost = true;
             p.onContextLost();
           });
           el.addEventListener('webglcontextrestored', () => {
+            if (!alive.current) return;
             debug.contextLost = false;
             p.onContextRestored();
           });
