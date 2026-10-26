@@ -1,0 +1,30 @@
+{
+  "format": "packetjourney-ai/scenario",
+  "version": 1,
+  "modelVersion": "14",
+  "name": "Application session across connections",
+  "cookieB": "valid",
+  "config": {
+    "seed": 1408,
+    "template": "same-lan",
+    "protocol": "TCP",
+    "udpChecksum": true,
+    "request": "Hello",
+    "endpoints": {
+      "client": { "ip": "192.0.2.10", "mac": "02:00:00:00:0a:10", "port": 50000 },
+      "server": { "ip": "192.0.2.20", "mac": "02:00:00:00:0a:20", "port": 7007 }
+    },
+    "requestDstPort": 7007,
+    "reply": { "enabled": true, "text": "World" },
+    "payloadMode": "http",
+    "http": { "path": "/", "cookie": null, "knownSessions": [] },
+    "close": { "enabled": true, "timeWaitMs": 400 },
+    "tcp": { "isnClient": 1000, "isnServer": 5000 },
+    "ttl": 64,
+    "rtoMs": 200,
+    "maxRetries": 3,
+    "maxEvents": 400,
+    "maxDurationMs": 5000,
+    "faults": []
+  }
+}

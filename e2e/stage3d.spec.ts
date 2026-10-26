@@ -247,6 +247,8 @@ for (const vp of [
       if (!lb) continue;
       expect(lb.x).toBeGreaterThanOrEqual(box.x - 1);
       expect(lb.x + lb.width).toBeLessThanOrEqual(box.x + box.width + 1);
+      expect(lb.y).toBeGreaterThanOrEqual(box.y - 1);
+      expect(lb.y + lb.height).toBeLessThanOrEqual(box.y + box.height + 1);
     }
   });
 }

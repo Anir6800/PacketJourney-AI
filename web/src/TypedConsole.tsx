@@ -3,13 +3,15 @@ import { useEffect, useRef, useState } from 'react';
 // Types lines at `cps` chars/sec. Enter or click completes the current line.
 // Screen readers get each finished line once via a role=log region (never per character).
 // Parent should `key` this component by its lines to restart it.
-export function TypedConsole({ lines, cps = 55, reduced, label, instant = false, onDone, testId = 'console' }: {
+export function TypedConsole({ lines, cps = 55, reduced, label, instant = false, paused = false, onDone, testId = 'console' }: {
   lines: readonly string[];
   cps?: number;
   reduced: boolean;
   label: string;
   /** Show everything now (e.g. the learner pressed Space). */
   instant?: boolean;
+  /** Freeze the current character for Director pause. */
+  paused?: boolean;
   onDone?: () => void;
   testId?: string;
 }) {
@@ -19,7 +21,7 @@ export function TypedConsole({ lines, cps = 55, reduced, label, instant = false,
   const current = lines[line] ?? '';
 
   useEffect(() => {
-    if (done) return;
+    if (done || paused) return;
     const t =
       chars >= current.length
         ? setTimeout(() => {
@@ -28,7 +30,7 @@ export function TypedConsole({ lines, cps = 55, reduced, label, instant = false,
           }, 220)
         : setTimeout(() => setChars((c) => c + 1), 1000 / cps);
     return () => clearTimeout(t);
-  }, [done, chars, current.length, cps]);
+  }, [done, paused, chars, current.length, cps]);
 
   const doneRef = useRef(onDone);
   useEffect(() => {

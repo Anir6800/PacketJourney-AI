@@ -506,7 +506,14 @@ function LabelProjector({ labels, layer }: { labels: Label[]; layer: RefObject<H
       tmp.set(...l.pos).project(camera);
       const x = ((tmp.x + 1) / 2) * size.width;
       const y = ((1 - tmp.y) / 2) * size.height;
-      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(${l.key === 'shells' ? '0' : '-50%'}, -50%)`;
+      const shells = l.key === 'shells';
+      const halfWidth = shells ? 0 : el.offsetWidth / 2;
+      const minX = 8 + halfWidth;
+      const maxX = Math.max(minX, size.width - 8 - (shells ? el.offsetWidth : halfWidth));
+      const halfHeight = el.offsetHeight / 2;
+      const px = Math.max(minX, Math.min(maxX, x));
+      const py = Math.max(8 + halfHeight, Math.min(size.height - 8 - halfHeight, y));
+      el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) translate(${shells ? '0' : '-50%'}, -50%)`;
       el.style.visibility = tmp.z < 1 ? 'visible' : 'hidden';
     }
   });

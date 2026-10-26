@@ -149,8 +149,14 @@ const KEY = 'pj.practice';
 export type Progress = Record<string, { input: string; correct: boolean }>;
 export function loadProgress(): Progress {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '{}') as Progress;
+    const value: unknown = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid progress');
+    const entries = Object.entries(value);
+    if (!entries.every(([, v]) => typeof v === 'object' && v !== null && !Array.isArray(v) && typeof (v as { input?: unknown }).input === 'string' && typeof (v as { correct?: unknown }).correct === 'boolean'))
+      throw new Error('invalid progress');
+    return Object.fromEntries(entries) as Progress;
   } catch {
+    try { localStorage.removeItem(KEY); } catch { /* unavailable */ }
     return {};
   }
 }

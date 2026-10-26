@@ -1,5 +1,33 @@
 # Test Evidence
 
+## Phase 14 — 2026-10-26
+
+Final-tree command: `npm run verify` → **exit 0**: typecheck 0, lint 0, Vitest **245 passed** (19 files), build ok (initial `index` **146.49 kB gzip**, schema validator **26.46 kB**, Director **1.32 kB**, lazy 3D **282.91 kB**), `check-no-secrets` clean, Playwright **54/54 passed** in 8.9 min.
+
+Pre-final evidence: Vitest **245 passed** (19 files); targeted Phase 14/Story/motion Vitest **22/22**; build ok (initial `index` **146.48 kB gzip**, schema validator **26.46 kB**, Director **1.32 kB**, lazy 3D **282.91 kB**); `check-no-secrets` clean; Playwright **54/54 passed** in 9.2 min. Focused `e2e/phase14.spec.ts`: **4/4 passed**; focused Director after screenshot change: **1/1 passed**.
+
+`scenario.test.ts`: all eight preset envelopes parse and deep-equal their source configs; rerunning each imported config produces the exact event list (the HTTP preset reproduces both connections and cookie verdict); malformed JSON, over-64-KiB input, unknown fields, semantically invalid config, a stale `events` field, newer format version and unsupported model version are rejected; a secret-shaped extra field is rejected; each committed `examples/*.json` equals its preset envelope. `settings.test.ts`: only the three allowlisted local keys are removed; corrupt/unavailable preferences recover without a throw or unrelated-key loss.
+
+E2E `phase14.spec.ts`: all eight presets switch protocol/seed and produce events while `/api/health` is aborted; TCP data-loss/ACK-loss and UDP loss/corruption presets reach their deterministic fault chains; application session exposes connection A and its across-connections description. Export TCP data loss → switch preset → import → same event-tag sequence and seed 1404; newer, huge and malformed files show specific safe errors. Corrupt preferences/scenario/practice JSON starts in Lab, reports recovery, persists Reduced/2D over reload, renders the print-only summary with SIMULATED and NOT MEASURED labels, and Reset removes practice data. Director: UDP-loss runs to completion in forced 2D/Reduced, Space freezes the beat, chapter jump works, Esc exits; missing WebGL selects 2D and explains why; a fresh real WebGL page renders the 3D stage and auto-advances to completion offline. Presentation time is advanced with Playwright's clock; engine virtual time remains unchanged.
+
+### Visual observations (Playwright screenshots, actually inspected)
+- `test-results/phase14-director-2d.png`: focused SVG journey shows A/B hosts, `192.0.2.10` → `192.0.2.20`, L1 100 Mb/s, Hop↔hop selected, step 2/10 at 0.00 µs, exact `app:send` caption, ARP NOT BUILT note and the 5-byte application card. Text is crisp DOM/SVG and no horizontal clipping is visible.
+- `test-results/phase14-director-3d.png`: real WebGL viewport shows both host terminals, link/subnet, application shell and interface IP/MAC labels. After the projector clamp, all labels remain inside the stage, including the lower host/interface labels. Reduced Motion correctly reports post effects off.
+- Existing 3D screenshot bounds tests pass at 1440×900 and 390×844 with both horizontal and vertical label containment assertions.
+
+### Compatibility and primary sources checked
+- No package version changed. Locked versions remain React/ReactDOM 19.3.1, R3F 9.8.2 and three 0.186.1; R3F's official installation guide says major 9 pairs with React 19, and npm reports 9.8.2 as the current stable package: https://r3f.docs.pmnd.rs/getting-started/installation and https://www.npmjs.com/package/%40react-three/fiber.
+- GSAP 3.15.0 remains pinned. The official installation page says all plugins are freely available on npm from 3.13 and recommends one registration module: https://gsap.com/docs/v3/Installation/. No new GSAP plugin was imported for this phase.
+- Presets introduce no new protocol algorithms; they select already-verified behavior. TCP/UDP/IPv4 semantics continue to cite RFC 9293, RFC 768 and RFC 791 in `PROTOCOL_MODEL.md`; simulated loss/corruption, teaching ISNs/RTO and prepopulated ARP remain explicitly labelled simplifications.
+
+### Repair log (phase 14)
+1. Corrupt-storage test reinserted corrupt JSON on reload → one session marker now seeds it once; product recovery was correct.
+2. One giant fake-clock jump did not flush each React beat, and reusing a page after a mocked WebGL failure lost its context → advance per beat and use a fresh page for the 3D proof.
+3. Visual inspection found lower 3D labels clipped → `LabelProjector` clamps both axes; desktop/mobile bounds assertions cover it.
+4. A first full verify reused a leftover optional-server process and later cascaded 502 console failures; the exact process was identified/stopped and a clean run was used for evidence.
+5. The schema-heavy ScenarioPanel shared a Suspense boundary with ConfigForm, hiding `Run #1` on a cold transform; separate boundaries keep core Lab controls available. The existing draft Reset locator is now exact because Phase 14 adds a second, destructive Reset button.
+6. A Cinematic 3D mocked-clock completion branch hit the 180 s SwiftShader cap. Per the three-cycle rule it was stopped; the acceptance proof uses Reduced 3D, while existing motion/Story tests cover camera rigs and Cinematic clock behavior. Real-device performance is NOT MEASURED.
+
 ## Phase 13 — 2026-10-26
 
 Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **239 passed** (17 files; new `server/src/explain.test.ts` 6, `web/src/tutor/tutor.test.ts` 5), build ok (initial entry 143.34 kB + shared chunks 5.61 kB ≈ **148.95 kB gzip**; TutorPanel lazy 3.37 kB; no zod, key or provider URL in any web chunk), `check-no-secrets` clean (now also `nvapi-` shapes and the literal configured key; probe file with the real key value was detected and removed), Playwright **50 passed** (new `e2e/tutor.spec.ts` 3).

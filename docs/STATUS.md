@@ -1,5 +1,27 @@
 # Status
 
+## Phase 14 · Save, replay and Director mode — COMPLETE (2026-10-26)
+
+### Completed
+- Versioned local scenario files (`packetjourney-ai/scenario`, format 1, model 14) contain only a validated simulation config, seed, optional session cookie choice and display name. Imports are capped at 64 KiB, reject unknown fields/newer versions/unsupported models, and always regenerate events and snapshots.
+- Eight deterministic named presets plus committed examples: TCP Hello success, UDP echo, routed TTL/MAC journey, TCP data loss, TCP ACK loss, UDP loss, header corruption and an application session across connections. Each states exactly what it demonstrates and what remains SIMULATED / NOT BUILT.
+- Guarded local persistence for theme, Motion/View, last config and practice progress; invalid data is cleared without crashing, unavailable storage stays usable for the tab, and one-click Reset demo removes only PacketJourney's allowed local keys.
+- Director mode reuses engine-built Story beats, captions, camera rigs and the existing 2D/3D stage; chapter jump, previous/next, Space pause/resume, Esc exit, hidden-tab pause, offline AI independence and automatic WebGL→2D fallback are implemented.
+- Print-only single-run summary, concise assumptions/help, and verified Windows PowerShell plus macOS/Linux startup instructions. No database, Docker, Firebase or Python is required.
+- 3D projected labels are clamped to the stage on both axes; the schema-heavy save/import tools have their own Suspense boundary so ordinary Lab controls remain available while that chunk loads.
+
+### Commands and results
+- `npx playwright test e2e/phase14.spec.ts` → **4/4 passed**; focused Director rerun → **1/1 passed**. Full browser suite is also green inside the final gate below.
+- Targeted Vitest (`scenario`, `settings`, Story/motion) → **22/22 passed**. Repository Vitest before the final gate → **245/245 passed** (19 files). Build: initial entry **146.48 kB gzip**, scenario validator **26.46 kB**, Director **1.32 kB**, lazy 3D **282.91 kB**; secrets scan clean.
+- Final top-level `npm run verify` → **exit 0**: typecheck 0, lint 0, Vitest **245/245**, build ok (initial **146.49 kB gzip**), secrets clean, Playwright **54/54** in 8.9 min.
+
+### Open issues
+- Three.js logs its upstream `THREE.Clock` deprecation warning through React Three Fiber; no page error or failing assertion results.
+- Headless Cinematic 3D completion with a mocked clock is too slow under CPU-only SwiftShader and hit the 180 s test cap. The required 3D start-to-finish proof runs in Reduced Motion; Cinematic camera/clock behavior is covered by the existing motion and Story suites. Real-device performance remains NOT MEASURED.
+- The lazy 3D chunk remains over Vite's generic 500 kB minified warning threshold but is 282.91 kB gzip and loads only when WebGL 3D is requested.
+
+## Next phase: **15**
+
 ## Phase 13 · Grounded AI tutor — COMPLETE (2026-10-26)
 
 ### Completed

@@ -8,11 +8,13 @@ import {
   httpSessionConfigs,
   representations,
   sameConfig,
+  presetById,
   validateSimConfig,
   bin,
   type CookieChoice,
   type HealthResponse,
   type HttpSessionRun,
+  type PresetId,
   type SimConfig,
   type SimState,
   type TemplateId,
@@ -28,7 +30,18 @@ import { DeviceDetail } from './DeviceDetail.tsx';
 import { sceneModel } from './scene/model.ts';
 import { selection, useSelection, type Selection } from './selection.ts';
 import { fmtTime } from './format.ts';
-import { hasWebGL, type Motion, type View } from './settings.ts';
+import {
+  DEFAULT_PREFERENCES,
+  clearLocalDemoData,
+  hasWebGL,
+  loadPreferences,
+  readStoredScenario,
+  removeStoredScenario,
+  savePreferences,
+  saveStoredScenario,
+  type Motion,
+  type View,
+} from './settings.ts';
 import { useBoot } from './useBoot.ts';
 import { buildCues, locate, spanOf } from './motion/cues.ts';
 import { SPEEDS, type Speed } from './motion/clock.ts';
@@ -40,6 +53,8 @@ import { debug } from './debug.ts';
 import { StoryPanel } from './StoryPanel.tsx';
 import { buildStory } from './story/script.ts';
 import { INITIAL_STORY, loadStory, saveStory, type StoryState } from './story/questions.ts';
+import { RunSummary } from './RunSummary.tsx';
+import type { ScenarioFile } from '@packetjourney/shared/scenario';
 
 const JourneyStage3D = lazy(() => import('./JourneyStage3D.tsx'));
 // Lab-only UI loads on demand: Story Mode is the first-run default (keeps the initial bundle within budget).
@@ -51,9 +66,11 @@ const CompareView = lazy(() => import('./CompareView.tsx').then((m) => ({ defaul
 const PracticeView = lazy(() => import('./PracticeView.tsx').then((m) => ({ default: m.PracticeView })));
 const TutorPanel = lazy(() => import('./tutor/TutorPanel.tsx').then((m) => ({ default: m.TutorPanel })));
 const FaultEditor = lazy(() => import('./faults/FaultEditor.tsx').then((m) => ({ default: m.FaultEditor })));
+const ScenarioPanel = lazy(() => import('./ScenarioPanel.tsx').then((m) => ({ default: m.ScenarioPanel })));
+const DirectorPanel = lazy(() => import('./DirectorPanel.tsx').then((m) => ({ default: m.DirectorPanel })));
 
 type Ai = 'checking' | 'online' | 'unconfigured' | 'offline';
-type Mode = 'story' | 'lab';
+type Mode = 'story' | 'lab' | 'director';
 type Tab = 'journey' | 'headers' | 'scopes' | 'compare' | 'practice';
 type Proto = 'TCP' | 'UDP';
 
@@ -91,9 +108,17 @@ function consoleLines(s: SimState, proto: Proto, scope: TemplateId): string[] {
 export function App() {
   const root = useRef<HTMLDivElement>(null);
   const osReduced = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const [motionPref, setMotion] = useState<Motion | null>(null);
+  const [initialPreferences] = useState(loadPreferences);
+  const [motionPref, setMotion] = useState<Motion | null>(initialPreferences.value.motion);
   const motion: Motion = motionPref ?? (osReduced ? 'reduced' : 'cinematic');
   const reduced = motion === 'reduced';
+  const [storageNotice, setStorageNotice] = useState(() =>
+    initialPreferences.state === 'recovered'
+      ? 'Corrupt local preferences were cleared and defaults restored.'
+      : initialPreferences.state === 'unavailable'
+        ? 'Local storage is unavailable; settings and progress work for this tab only.'
+        : '',
+  );
 
   // Story Mode is the first-run default; the choice and story progress persist for the session (resumable).
   const [mode, setMode] = useState<Mode>(() => {
@@ -104,7 +129,10 @@ export function App() {
     }
   });
   const [story, setStory] = useState<StoryState>(loadStory);
-  const [view, setView] = useState<View>('3d');
+  const [view, setView] = useState<View>(initialPreferences.value.view);
+  const [presetId, setPresetId] = useState<PresetId>('tcp-hello');
+  const [directorPlaying, setDirectorPlaying] = useState(false);
+  const [practiceKey, setPracticeKey] = useState(0);
   const [contextLost, setContextLost] = useState(false);
   const [tab, setTab] = useState<Tab>('journey');
   const [ai, setAi] = useState<Ai>('checking');
@@ -157,7 +185,13 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.motion = motion;
-  }, [motion]);
+    document.documentElement.dataset.theme = initialPreferences.value.theme;
+  }, [motion, initialPreferences.value.theme]);
+
+  useEffect(() => {
+    if (!savePreferences({ ...DEFAULT_PREFERENCES, motion: motionPref, view }))
+      queueMicrotask(() => setStorageNotice('Local storage is unavailable; settings and progress work for this tab only.'));
+  }, [motionPref, view]);
 
   useEffect(() => {
     const sync = () => {
@@ -168,11 +202,15 @@ export function App() {
         mo.clock.pause();
         setHiddenPause(true);
       }
+      if (document.hidden && mode === 'director' && directorPlaying) {
+        setDirectorPlaying(false);
+        setHiddenPause(true);
+      }
     };
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => document.removeEventListener('visibilitychange', sync);
-  }, [mo]);
+  }, [mo, mode, directorPlaying]);
 
   // Clock → master timeline, 3D ref, panels (on event change only), dock DOM text. One subscription.
   useEffect(() => {
@@ -264,24 +302,111 @@ export function App() {
     mo.clock.seek(0);
   };
 
-  const startRun = () => {
-    if (issues.length) return;
-    if (draft.payloadMode === 'http') {
-      const a = controller.start(httpSessionConfigs(draft).a);
+  const persistScenario = (name: string, config: SimConfig, savedCookie: CookieChoice) => {
+    void import('@packetjourney/shared/scenario')
+      .then(({ scenarioJson }) => {
+        if (!saveStoredScenario(scenarioJson(name, config, savedCookie)))
+          setStorageNotice('Local storage is unavailable; settings and progress work for this tab only.');
+      })
+      .catch(() => setStorageNotice('The saved configuration could not be prepared; this run is still available in the current tab.'));
+  };
+
+  const runConfig = (config: SimConfig, savedCookie: CookieChoice, name = 'Saved lab scenario', persist = true): boolean => {
+    if (validateSimConfig(config).length) return false;
+    if (config.payloadMode === 'http') {
+      const a = controller.start(httpSessionConfigs(config).a);
       setRun(a);
-      setSes({ s: continueHttpSession(a, draft, cookieB), base: structuredClone(draft), cookieB });
+      setSes({ s: continueHttpSession(a, config, savedCookie), base: structuredClone(config), cookieB: savedCookie });
       setConn('a');
     } else {
-      setRun(controller.start(draft));
+      setRun(controller.start(config));
       setSes(null);
     }
     setSelectedEvent(null);
     setSelectedField(null);
+    if (persist) persistScenario(name, config, savedCookie);
+    return true;
   };
+  const startRun = () => runConfig(draft, cookieB);
   const resetDraft = () => {
     setDraft(structuredClone(ses ? ses.base : latest.config));
     if (ses) setCookieB(ses.cookieB);
   };
+  const loadPreset = (id: PresetId, director: boolean) => {
+    const preset = presetById(id);
+    const config = structuredClone(preset.config);
+    setPresetId(id);
+    setDraft(config);
+    setCookieB(preset.cookieB);
+    if (!runConfig(config, preset.cookieB, preset.name)) return;
+    if (director) {
+      if (!hasWebGL()) setView('2d');
+      setStory({ ...INITIAL_STORY, phase: 'play', config });
+      setDirectorPlaying(true);
+      setMode('director');
+    } else {
+      setDirectorPlaying(false);
+      setMode('lab');
+    }
+  };
+  const importScenario = (file: ScenarioFile) => {
+    const config = structuredClone(file.config);
+    setDraft(config);
+    setCookieB(file.cookieB);
+    runConfig(config, file.cookieB, file.name);
+    setDirectorPlaying(false);
+    setMode('lab');
+  };
+  const resetDemo = () => {
+    const available = clearLocalDemoData();
+    try {
+      sessionStorage.removeItem('pj.story');
+      sessionStorage.removeItem('pj.mode');
+    } catch {
+      // Session resume is optional.
+    }
+    const config = structuredClone(DEFAULT_SIM);
+    setDraft(config);
+    setCookieB('valid');
+    setMotion(null);
+    setView('3d');
+    setPresetId('udp-echo');
+    setStory(INITIAL_STORY);
+    setDirectorPlaying(false);
+    setPracticeKey((k) => k + 1);
+    setMode('lab');
+    runConfig(config, 'valid', 'UDP echo');
+    setStorageNotice(available ? 'Demo settings, saved config and practice progress were reset to local defaults.' : 'Local storage is unavailable; the visible demo was reset for this tab only.');
+  };
+  const restoreScenario = useRef<(file: ScenarioFile) => void>(() => undefined);
+  useLayoutEffect(() => {
+    restoreScenario.current = (file) => {
+      const config = structuredClone(file.config);
+      setDraft(config);
+      setCookieB(file.cookieB);
+      runConfig(config, file.cookieB, file.name, false);
+    };
+  });
+  useEffect(() => {
+    if (story.phase === 'play') return;
+    const saved = readStoredScenario();
+    if (saved.state === 'unavailable') {
+      queueMicrotask(() => setStorageNotice('Local storage is unavailable; settings and progress work for this tab only.'));
+      return;
+    }
+    if (!saved.text) return;
+    let active = true;
+    void import('@packetjourney/shared/scenario').then(({ parseScenarioJson }) => {
+      if (!active) return;
+      const parsed = parseScenarioJson(saved.text ?? '');
+      if (parsed.ok) restoreScenario.current(parsed.value);
+      else {
+        removeStoredScenario();
+        setStorageNotice(`Corrupt saved configuration was cleared: ${parsed.error}`);
+      }
+    });
+    return () => { active = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const selectEvent = (i: number) => {
     seekEvent(i);
     setSelectedEvent(i);
@@ -299,22 +424,29 @@ export function App() {
   }, [mode]);
   useEffect(() => saveStory(story), [story]);
 
-  // Built only while a story plays (it re-runs the engine for its predictions): keeps first load and Lab light.
-  const storyPlaying = mode === 'story' && story.phase === 'play';
+  // Built only while a story or Director run plays (it re-runs the engine for its predictions).
+  const storyPlaying = (mode === 'story' || mode === 'director') && story.phase === 'play';
   const beats = useMemo(() => (storyPlaying ? buildStory(run) : []), [run, storyPlaying]);
-  const beat = mode === 'story' && story.phase === 'play' ? beats[Math.min(story.beat, beats.length - 1)] : undefined;
+  const beat = storyPlaying ? beats[Math.min(story.beat, beats.length - 1)] : undefined;
   useEffect(() => {
     if (import.meta.env.DEV || import.meta.env.MODE === 'test') debug.story = () => beats.map((b) => ({ id: b.id, chapter: b.chapter, kind: b.kind, layer: b.layer, text: [b.title, ...b.lines] }));
   }, [beats]);
   const startStory = () => {
     if (validateSimConfig(draft).length) return false;
-    startRun();
+    if (!startRun()) return false;
     setStory((st) => ({ ...st, phase: 'play', beat: 0, config: structuredClone(draft) }));
     return true;
   };
   const replayAsStory = () => {
     setStory((st) => ({ ...INITIAL_STORY, auto: st.auto, phase: 'play', config: structuredClone(run.config) }));
     setMode('story');
+  };
+  const setAppMode = (next: Mode) => {
+    if (next === 'director') loadPreset(presetId, true);
+    else {
+      setDirectorPlaying(false);
+      setMode(next);
+    }
   };
 
   const pick = (s: Selection) => {
@@ -410,8 +542,8 @@ export function App() {
           SIMULATED
         </span>
         <div className="hud-controls">
-          <Segmented label="Mode" value={mode} onChange={setMode} options={[{ value: 'story', label: 'Story' }, { value: 'lab', label: 'Lab' }]} />
-          <Segmented label="Protocol" value={proto} onChange={setProto} options={[{ value: 'TCP', label: 'TCP' }, { value: 'UDP', label: 'UDP' }]} />
+          <Segmented label="Mode" value={mode} onChange={setAppMode} options={[{ value: 'story', label: 'Story' }, { value: 'lab', label: 'Lab' }, { value: 'director', label: 'Director' }]} />
+          {mode !== 'director' && <Segmented label="Protocol" value={proto} onChange={setProto} options={[{ value: 'TCP', label: 'TCP' }, { value: 'UDP', label: 'UDP' }]} />}
           <Segmented label="Motion" value={motion} onChange={setMotion} options={[{ value: 'cinematic', label: 'Cinematic' }, { value: 'reduced', label: 'Reduced' }]} />
           <Segmented label="View" value={view} onChange={setView} options={[{ value: '3d', label: '3D' }, { value: '2d', label: '2D' }]} />
           {drawer && (
@@ -426,8 +558,8 @@ export function App() {
       </header>
 
       <main className="layout">
-        <aside className={`rail glass hud-enter${mode === 'story' ? ' rail-story' : ''}`} aria-label={mode === 'story' ? 'Story' : 'Configuration'}>
-          <HudLabel>{mode === 'story' ? 'Story Mode' : 'Lab Mode'}</HudLabel>
+        <aside className={`rail glass hud-enter${mode !== 'lab' ? ' rail-story' : ''}`} aria-label={mode === 'story' ? 'Story' : mode === 'director' ? 'Director' : 'Configuration'}>
+          <HudLabel>{mode === 'story' ? 'Story Mode' : mode === 'director' ? 'Director Mode' : 'Lab Mode'}</HudLabel>
           {mode === 'story' ? (
             <StoryPanel
               draft={draft}
@@ -439,27 +571,59 @@ export function App() {
               onStart={startStory}
               onPractice={() => setTab('practice')}
             />
+          ) : mode === 'director' ? (
+            <Suspense fallback={<StateView kind="loading" title="Loading Director…" />}>
+              <DirectorPanel
+                beats={beats}
+                story={story}
+                setStory={setStory}
+                presetId={presetId}
+                playing={directorPlaying}
+                reduced={reduced}
+                onPlaying={(playing) => {
+                  if (playing && story.beat >= beats.length - 1) setStory((s) => ({ ...s, beat: 0 }));
+                  setDirectorPlaying(playing);
+                  setHiddenPause(false);
+                }}
+                onPreset={(id) => loadPreset(id, true)}
+                onExit={() => {
+                  setDirectorPlaying(false);
+                  setMode('lab');
+                }}
+              />
+            </Suspense>
           ) : (
             <>
-          <Suspense fallback={<StateView kind="loading" title="Loading Lab controls…" />}>
-          <p className="muted small">Free lab: every setting below. The story's answers live here too.</p>
-          <button type="button" className="btn" data-testid="replay-story" onClick={replayAsStory}>
-            Replay this run as a story
-          </button>
-          <ConfigForm
-            draft={draft}
-            setDraft={setDraft}
-            issues={issues}
-            dirty={dirty}
-            onRun={startRun}
-            onReset={resetDraft}
-            runInfo={`Run #${run.runId} · seed ${run.config.seed} · ${run.config.protocol} · ${run.config.template}${ses ? ` · HTTP session, connection ${conn.toUpperCase()}` : ''}`}
-            cookieB={cookieB}
-            setCookieB={setCookieB}
-          />
-          <HudLabel>Faults</HudLabel>
-          <FaultEditor draft={draft} setDraft={setDraft} issues={issues} />
-          </Suspense>
+              <p className="muted small">Free lab: every setting below. The story's answers live here too.</p>
+              <button type="button" className="btn" data-testid="replay-story" onClick={replayAsStory}>
+                Replay this run as a story
+              </button>
+              <Suspense fallback={<StateView kind="loading" title="Loading save and presentation tools…" />}>
+                <ScenarioPanel
+                  config={ses ? ses.base : latest.config}
+                  cookieB={ses?.cookieB ?? cookieB}
+                  presetId={presetId}
+                  notice={storageNotice}
+                  onPreset={loadPreset}
+                  onImport={importScenario}
+                  onReset={resetDemo}
+                />
+              </Suspense>
+              <Suspense fallback={<StateView kind="loading" title="Loading Lab controls…" />}>
+                <ConfigForm
+                  draft={draft}
+                  setDraft={setDraft}
+                  issues={issues}
+                  dirty={dirty}
+                  onRun={startRun}
+                  onReset={resetDraft}
+                  runInfo={`Run #${run.runId} · seed ${run.config.seed} · ${run.config.protocol} · ${run.config.template}${ses ? ` · HTTP session, connection ${conn.toUpperCase()}` : ''}`}
+                  cookieB={cookieB}
+                  setCookieB={setCookieB}
+                />
+                <HudLabel>Faults</HudLabel>
+                <FaultEditor draft={draft} setDraft={setDraft} issues={issues} />
+              </Suspense>
             </>
           )}
         </aside>
@@ -490,7 +654,7 @@ export function App() {
                             selected={sel}
                             onSelect={pick}
                             reduced={reduced}
-                            playing={clockUi.playing}
+                    playing={clockUi.playing || (mode === 'director' && directorPlaying)}
                             motion={mo}
                             rig={beat?.rig}
                             hidden={docHidden || contextLost}
@@ -577,7 +741,7 @@ export function App() {
               )}
               {tab === 'practice' && (
                 <Suspense fallback={<StateView kind="loading" title="Loading practice…" />}>
-                  <PracticeView />
+                  <PracticeView key={practiceKey} />
                 </Suspense>
               )}
             </div>
@@ -714,15 +878,17 @@ export function App() {
         </span>
       </footer>
 
+      <RunSummary run={run} connection={ses ? conn : undefined} />
+
       <dialog ref={help} className="help glass" aria-labelledby="help-title">
         <h2 id="help-title">Help</h2>
         <ul>
-          <li>Any key or click skips the intro (plays once per session).</li>
-          <li>← / → move between stage tabs.</li>
-          <li>Enter or click completes the current console line.</li>
-          <li>Headers tab: select a field to highlight its exact bytes.</li>
-          <li>Esc closes this dialog and the inspector drawer.</li>
-          <li>Everything shown is SIMULATED; no real network traffic.</li>
+          <li>Story asks one question at a time. Lab exposes every current control. Director auto-advances a preset; Space pauses, arrows step and Esc exits.</li>
+          <li>The timeline uses presentation time; protocol timestamps and results remain deterministic virtual time.</li>
+          <li>Imports contain config, seed and model version only. Events are always regenerated.</li>
+          <li>Teaching ISNs, fixed RTO, link timing, prepopulated ARP caches and all faults are SIMULATED.</li>
+          <li>Congestion control, SACK, TCP options, IPv6, fragmentation, NAT, TLS, ARP exchange and ICMP generation are NOT BUILT.</li>
+          <li>No real sockets, packet capture or measured performance. AI is optional and never supplies protocol facts.</li>
         </ul>
         <form method="dialog">
           <button className="btn btn-primary" autoFocus>

@@ -88,6 +88,7 @@ button, input, select { font: inherit; color: inherit; }
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25), 0 0 14px rgba(56, 189, 248, 0.25);
 }
 .btn-primary { background: rgba(56, 189, 248, 0.16); border-color: rgba(56, 189, 248, 0.5); }
+.btn-danger { color: var(--c-danger); border-color: var(--c-danger); }
 .btn-icon { width: 34px; padding: 6px 0; text-align: center; }
 button:disabled { cursor: not-allowed; opacity: 0.55; }
 :focus-visible { outline: 2px solid var(--c-transport); outline-offset: 2px; }
@@ -446,3 +447,31 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 @keyframes ref-pulse { 0% { background: rgba(167, 139, 250, 0.45); } 100% { background: transparent; } }
 .pulse { animation: ref-pulse 1.2s ease-out 1; outline: 1px solid var(--c-app); }
 [data-motion='reduced'] .pulse { animation: none; }
+
+/* Save/replay + Director (phase 14) */
+.scenario-tools, .director { display: grid; gap: 8px; }
+.preset-note { display: grid; gap: 3px; padding: 8px 10px; border-left: 3px solid var(--c-link); background: var(--c-scrim); border-radius: 6px; }
+.scenario-tools .state { padding: 10px; justify-items: start; text-align: left; }
+.scenario-tools .state-icon { display: none; }
+.ok { color: var(--c-success); font-size: 0.82rem; }
+.director-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--c-link); }
+.director-chapters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; list-style: none; margin: 0; padding: 0; }
+.director-chapters .btn { width: 100%; text-align: left; }
+.director-chapters .btn[aria-pressed='true'] { border-color: var(--c-transport); background: rgba(56, 189, 248, 0.12); }
+.director-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.director-controls .btn { min-height: 40px; margin-top: 0; padding-inline: 4px; }
+.print-summary { display: none; }
+
+@media print {
+  :root { color-scheme: light; }
+  body { background: white !important; color: #111 !important; }
+  .app { display: block; padding: 0; }
+  .app > :not(.print-summary) { display: none !important; }
+  .print-summary { display: block; font: 11pt/1.45 system-ui, sans-serif; color: #111; }
+  .print-summary h1 { font-size: 20pt; }
+  .print-summary h2 { margin-top: 18pt; font-size: 14pt; }
+  .print-summary dl { display: grid; grid-template-columns: 9rem 1fr; gap: 4pt 12pt; }
+  .print-summary dt { font-weight: 700; }
+  .print-summary dd { margin: 0; overflow-wrap: anywhere; }
+  @page { margin: 16mm; }
+}

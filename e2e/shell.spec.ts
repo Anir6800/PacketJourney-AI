@@ -171,7 +171,7 @@ test('run lifecycle: one event history, dirty draft, explicit run/reset, determi
   await page.getByRole('group', { name: 'Protocol' }).getByRole('button', { name: 'TCP' }).click();
   await expect(page.getByTestId('dirty')).toBeVisible();
   expect(await tags(page)).toEqual(first);
-  await page.getByRole('button', { name: 'Reset' }).click();
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(page.getByTestId('dirty')).toHaveCount(0);
   await expect(page.getByRole('group', { name: 'Protocol' }).getByRole('button', { name: 'UDP' })).toHaveAttribute('aria-pressed', 'true');
 

@@ -137,5 +137,10 @@ Status: `planned` / `implemented` / `verified` / `blocked`.
 | C12 | Predict/compare | comparison logic tests + e2e | planned |
 | S1 | Story Mode flow | e2e walkthrough | planned |
 | S2 | Lab Mode | e2e | planned |
-| S3 | Director demo mode | e2e | planned |
-| S4 | 2D fallback parity with 3D steps | same snapshot drives both; e2e step count | planned |
+| S3 | Director demo mode | `e2e/phase14.spec.ts` (offline 2D + real WebGL 3D completion, pause/jump/exit) | verified |
+| S4 | 2D fallback parity with 3D steps | same snapshot/Story beat drives both; e2e WebGL unavailable + context loss | verified |
+| P14.1 | Versioned config-only export/import; size/schema/version bounds; regenerate results | `scenario.test.ts`; `e2e/phase14.spec.ts` | verified |
+| P14.2 | Guarded allowlisted local persistence, corrupt recovery and clear reset | `settings.test.ts`; `e2e/phase14.spec.ts` | verified |
+| P14.3 | Eight deterministic named presets and committed example files | `scenario.test.ts`; `e2e/phase14.spec.ts` | verified |
+| P14.4 | Director chapters/captions/controls, offline AI independence and automatic 2D fallback | `e2e/phase14.spec.ts`; existing Story/motion suites | verified |
+| P14.5 | Windows + macOS/Linux start instructions, print summary and assumptions help | command verification; e2e print-media assertion | verified |
