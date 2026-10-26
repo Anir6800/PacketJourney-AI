@@ -266,7 +266,7 @@ function BeatView({ b, bi, beats, story, setStory, reduced, onPractice }: {
             </div>
           ))}
           <button type="button" className="btn" onClick={onPractice}>
-            Open Practice (NOT BUILT)
+            Open Practice
           </button>
         </div>
       )}

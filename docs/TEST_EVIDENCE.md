@@ -1,5 +1,22 @@
 # Test Evidence
 
+## Phase 12 — 2026-10-26
+
+Command: `npm run verify` → typecheck 0, lint 0, vitest **228 passed** (15 files; new `shared/src/sim/compare.test.ts` 5, `web/src/practice/practice.test.ts` 1), build ok (initial entry 143.18 kB + shared chunks ≈ 5.6 kB ≈ 148.8 kB gzip; Compare 2.79 kB and Practice 3.49 kB lazy), secrets clean, Playwright **45/47** in the full run: `faults.spec` "handshake cannot be targeted…" and `motion.spec` "master timeline duration…" timed out under load (30 s); both, and the rest of those two specs (11/11), passed on an immediate rerun. New `e2e/compare.spec.ts` 3/3.
+
+`compare.test.ts`: TCP and UDP configs identical except the protocol; one fault event each, on the first data packet (attempt 0, hop 1), at different event indexes (semantic matching); metrics recomputed independently (frame bytes = sum of transmitted frame lengths, preamble/IFG excluded; 10 unique bytes; first delivery, completion, goodput, overhead ratio); full − delivery frame bytes = handshake + pure ACK frame bytes; lost ACK → 1 retransmission + duplicate, unique bytes stay 5; UDP data drop → 0 bytes, 0 retransmissions, no delivery times, goodput n/a, 1 drop; TCP → 10 B, 1 retransmission.
+`practice.test.ts`: 12 unique questions; answers from engine fixtures (02:00:00:00:02:00, 62, no, 7007, 1006, 1001, 3, 0, 0, 1, FIN-WAIT-1, yes); deterministic; grading normalizes MAC separators, case, y/n; "62.0" and empty rejected.
+E2E `compare.spec.ts`: routed Hello: 10 B both; full TCP frame bytes > delivery-only; delivery-only TCP = UDP frame bytes; drop first data → TCP 10 B with 1 retransmission, UDP 0 B (request lost, so no reply), 0 retransmissions, 1 drop each; every cell's text equals its exact engine value after switching; UDP first delivery and goodput n/a; stepping the TCP cursor leaves UDP unchanged; no winner claim. Reduced: exact value immediately. Practice: 12 questions, no reveals and the MAC answer absent before submit; correct MAC → ✓ with evidence; TTL 64 → ✕ "answer 62"; score 2/12 · 1 correct; persists over reload; Reset → 0/12, no reveals, localStorage key removed.
+
+### Screenshot observations (Playwright, inspected)
+- `compare-1440.png`: first capture after switching to "Drop first data" showed stale UDP cells (10 B, first delivery 2.222 ms, completion 0.027 ms) → root cause: CountUp wrote textContent while React also rendered the text child (React then updated a detached node) → span now has no React child; all-cells exactness check added.
+- `practice-1440.png`: 12 cards; Q5 after submitting 1006 shows "✓ Correct · you answered 1006 · answer 1006", explanation, evidence rows request seq 1001 / data bytes 5 / server ACK 1006; other answers not shown.
+
+### Repair log (phase 12)
+1. Name clash `Metrics` (state.ts) → `CompareMetrics`.
+2. Test expected UDP 5 B after a request drop; the engine correctly delivers 0 B (no request → no reply) → expectation fixed.
+3. Stale count-up text (see screenshot) → effect-owned span text.
+4. AI badge test now follows `/api/health` (a local `.env` with AI settings was added; see STATUS).
 ## Phase 11 — 2026-10-26
 
 Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **222 passed** (13 files; new `shared/src/sim/faults.test.ts` 11, `web/src/faults/chain.test.ts` 1), build ok (initial entry 143.67 kB + shared chunks 5.36 kB = **149.03 kB gzip**; lazy: 3D 282.89, ConfigForm 3.17, FaultEditor 1.85, HeaderView 1.40, SessionPanel 1.23), secrets clean, Playwright **44 passed** (new `e2e/faults.spec.ts` 4).

@@ -8,7 +8,7 @@ Story Mode captions. Every caption is one of these templates, filled only from e
 2. Encapsulation: one beat per layer: Application, Transport, Internet, Link, Physical (SIMULATED teaching view). Camera: Inspect layers; the layer's key fields are highlighted with their values in the inspector.
 3. Journey: TCP state changes (handshake, close), each packet's first send from an endpoint, router forwards of the request, ACKs, deliveries, drops and retransmissions. UDP stories have no state or ACK beats.
 4. Decapsulation at the receiver, outermost first: Link, Internet, Transport, Application, each with its validation result.
-5. Recap: process-to-process, host-to-host and hop-to-hop scopes (the journey's scope overlay follows); what changed per hop vs what stayed; two predictions answered by re-running the engine with one input changed. Practice: NOT BUILT (the link opens its placeholder tab).
+5. Recap: process-to-process, host-to-host and hop-to-hop scopes (the journey's scope overlay follows); what changed per hop vs what stayed; two predictions answered by re-running the engine with one input changed. The Practice link opens the Practice tab (phase 12).
 
 Typing: 45 characters per second (TypedConsole), always instantly completable (Space, Enter or click); Reduced motion shows the full text at once. Auto-play holds 3.5 s after a beat finishes typing (presentation only). The routed TCP story is tested to estimate 2 to 4 minutes at 1x.
 

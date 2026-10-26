@@ -20,7 +20,9 @@ test('dark shell shows SIMULATED badge and AI status', async ({ page }) => {
   await skipBoot(page);
   await page.goto('/');
   await expect(page.getByTestId('simulated-badge')).toHaveText('SIMULATED');
-  await expect(page.getByTestId('ai-status')).toHaveText('server up · AI not configured');
+  // Whether AI is configured depends on the local .env; the badge must match what the server reports.
+  const health = (await (await page.request.get('/api/health')).json()) as { aiConfigured: boolean };
+  await expect(page.getByTestId('ai-status')).toHaveText(health.aiConfigured ? 'online' : 'server up · AI not configured');
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(5, 7, 13)');
 });
 

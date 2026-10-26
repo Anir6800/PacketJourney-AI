@@ -1,5 +1,22 @@
 # Status
 
+## Phase 12 · Compare and prediction modes — COMPLETE (2026-10-26)
+
+### Completed
+- `shared/src/sim/compare.ts`: TCP/UDP compare configs with semantic data-targeted faults; event-derived metrics with full-exchange and delivery-only accounting.
+- Compare tab (lazy): fault and accounting selectors, two compact 2D journeys with separate cursors, metrics table with unit definitions (preamble/IFG excluded, overhead denominator stated, n/a for zero or missing durations), GSAP count-up to exact values, no winner badge; 3D side-by-side NOT BUILT.
+- Practice tab (lazy): 12 engine-grounded prediction questions (MAC per hop, TTL, unchanged IPs and ports, ACK arithmetic, SYN numbering, handshake count, UDP no handshake/no retry, single delivery after loss, FIN-WAIT-1, session across connections); answers hidden until submitted, evidence revealed, deterministic grading, resettable local progress, offline.
+
+### Commands and results
+vitest 228/228; build ok (initial ≈ 148.8 kB gzip); secrets clean; Playwright 45/47 in the full run (2 load timeouts, both passing on rerun), compare spec 3/3. Details: `TEST_EVIDENCE.md`.
+- Local `.env` (git-ignored) now holds NVIDIA AI settings (base URL, model `nvidia/nemotron-3.5-super-vl-120b-a12b`, key). Only `/api/health` reads them; the AI tutor is still NOT BUILT.
+
+### Open issues
+- Compare covers raw echo only (HTTP compare not offered); faults in Compare target hop 0.
+- 3D side-by-side compare: NOT BUILT. AI tutor: NOT BUILT.
+
+## Next phase: **13**
+
 ## Phase 11 · Fault lab — COMPLETE (2026-10-26)
 
 ### Completed
@@ -16,7 +33,6 @@
 - RTO labels can clip at the 3D stage's left edge for the client in Overview.
 - Zero window, congestion control, handshake/teardown faults, duplication/reordering as standalone faults: NOT BUILT.
 
-## Next phase: **12**
 
 ## Phase 10 · Story Mode — COMPLETE (2026-10-26)
 

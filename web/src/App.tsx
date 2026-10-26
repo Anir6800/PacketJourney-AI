@@ -47,6 +47,8 @@ const ConfigForm = lazy(() => import('./ConfigForm.tsx').then((m) => ({ default:
 const HeaderView = lazy(() => import('./HeaderView.tsx').then((m) => ({ default: m.HeaderView })));
 const FieldDetail = lazy(() => import('./HeaderView.tsx').then((m) => ({ default: m.FieldDetail })));
 const SessionPanel = lazy(() => import('./SessionPanel.tsx').then((m) => ({ default: m.SessionPanel })));
+const CompareView = lazy(() => import('./CompareView.tsx').then((m) => ({ default: m.CompareView })));
+const PracticeView = lazy(() => import('./PracticeView.tsx').then((m) => ({ default: m.PracticeView })));
 const FaultEditor = lazy(() => import('./faults/FaultEditor.tsx').then((m) => ({ default: m.FaultEditor })));
 
 type Ai = 'checking' | 'online' | 'unconfigured' | 'offline';
@@ -565,10 +567,15 @@ export function App() {
                   Open the Journey tab and switch Process ↔ process, Host ↔ host or Hop ↔ hop while stepping through events.
                 </StateView>
               )}
-              {(tab === 'compare' || tab === 'practice') && (
-                <StateView kind="empty" title={`${TABS.find((t) => t.id === tab)?.label}: NOT BUILT`}>
-                  Arrives in a later phase.
-                </StateView>
+              {tab === 'compare' && (
+                <Suspense fallback={<StateView kind="loading" title="Loading compare…" />}>
+                  <CompareView base={run.config} reduced={reduced} />
+                </Suspense>
+              )}
+              {tab === 'practice' && (
+                <Suspense fallback={<StateView kind="loading" title="Loading practice…" />}>
+                  <PracticeView />
+                </Suspense>
               )}
             </div>
           </div>

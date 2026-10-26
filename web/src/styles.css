@@ -422,3 +422,19 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .chain-arrow { color: var(--c-danger); }
 .fault-editor { display: grid; gap: 6px; }
 .fault-list { margin: 0; padding-left: 16px; }
+
+/* Compare + Practice (phase 12) */
+.compare, .practice { display: grid; gap: 10px; }
+.compare-journeys { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.mini { border: 1px solid var(--c-hairline); border-radius: 8px; padding: 8px; display: grid; gap: 4px; background: var(--c-scrim); }
+.mini-svg { width: 100%; height: auto; }
+.metrics { width: 100%; border-collapse: collapse; }
+.metrics th, .metrics td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--c-hairline); vertical-align: top; }
+.metrics td { white-space: nowrap; }
+.unit-def { display: block; font-size: 0.68rem; font-weight: 400; }
+.practice-list { display: grid; gap: 10px; padding-left: 0; list-style: none; }
+.practice-q { border: 1px solid var(--c-hairline); border-radius: 8px; padding: 8px 10px; background: var(--c-scrim); }
+.practice-q[data-state='correct'] { border-color: var(--c-success); }
+.practice-q[data-state='wrong'] { border-color: var(--c-danger); }
+.practice-reveal .ok { color: var(--c-success); }
+.practice-reveal .hot { color: var(--c-text); background: rgba(56, 189, 248, 0.1); }
