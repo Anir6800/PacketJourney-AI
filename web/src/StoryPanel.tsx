@@ -15,6 +15,9 @@ type Props = {
   /** Runs the draft and starts the story; returns false when the config is not runnable. */
   onStart: () => boolean;
   onPractice: () => void;
+  minimal?: boolean;
+  onSkip?: () => void;
+  onBackToEntry?: () => void;
 };
 
 const toPort = (v: string) => (v.replace(/\D/g, '') === '' ? Number.NaN : Number(v.replace(/\D/g, '')));
@@ -37,17 +40,20 @@ function Choice<T extends string>({ value, options, onChange, label }: { value: 
   );
 }
 
-function Questions({ draft, setDraft, story, setStory, reduced, onStart }: Props) {
+function Questions({ draft, setDraft, story, setStory, reduced, onStart, minimal, onSkip, onBackToEntry }: Props) {
   const qs = questionsFor(draft);
   const qi = Math.min(story.q, qs.length - 1);
   const q = qs[qi] ?? 'message';
-  return <Question key={q} q={q} qi={qi} total={qs.length} draft={draft} setDraft={setDraft} setStory={setStory} reduced={reduced} onStart={onStart} />;
+  return <Question key={q} q={q} qi={qi} total={qs.length} draft={draft} setDraft={setDraft} setStory={setStory} reduced={reduced} onStart={onStart} minimal={minimal} onSkip={onSkip} onBackToEntry={onBackToEntry} />;
 }
 
-function Question({ q, qi, total, draft, setDraft, setStory, reduced, onStart }: {
+function Question({ q, qi, total, draft, setDraft, setStory, reduced, onStart, minimal, onSkip, onBackToEntry }: {
   q: QuestionId; qi: number; total: number; draft: SimConfig; setDraft: Props['setDraft']; setStory: Props['setStory']; reduced: boolean; onStart: () => boolean;
+  minimal?: boolean | undefined; onSkip?: (() => void) | undefined; onBackToEntry?: (() => void) | undefined;
 }) {
-  const [typed, setTyped] = useState(false);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => { if (minimal) form.current?.focus(); }, [minimal]);
+  const [typed, setTyped] = useState(Boolean(minimal));
   const [instant, setInstant] = useState(false);
   const [tried, setTried] = useState(false);
   const [startError, setStartError] = useState('');
@@ -69,7 +75,7 @@ function Question({ q, qi, total, draft, setDraft, setStory, reduced, onStart }:
     }
     setStory((s) => ({ ...s, q: qi + 1 }));
   };
-  const back = () => setStory((s) => ({ ...s, q: Math.max(0, qi - 1) }));
+  const back = () => qi <= 1 && onBackToEntry ? onBackToEntry() : setStory((s) => ({ ...s, q: Math.max(0, qi - 1) }));
   const bytes = checkPayload(draft.request);
   const tcp = draft.protocol === 'TCP';
 
@@ -148,11 +154,18 @@ function Question({ q, qi, total, draft, setDraft, setStory, reduced, onStart }:
   }
 
   return (
-    <form className="story" data-testid="story-question" data-q={q} noValidate onSubmit={(e) => { e.preventDefault(); next(); }}>
+    <form ref={form} tabIndex={minimal ? -1 : undefined} className={`story${minimal ? ' story-minimal glass' : ''}`} data-testid="story-question" data-q={q} noValidate
+      onSubmit={(e) => { e.preventDefault(); next(); }}
+      onKeyDown={(e) => {
+        if (!minimal) return;
+        if (e.key === 'Backspace' && (e.target === form.current || e.target instanceof HTMLInputElement && !e.target.value)) { e.preventDefault(); back(); }
+        if (e.key === 'Enter') { e.preventDefault(); next(); }
+      }}>
       <HudLabel>
         Question {qi + 1} of {total}
       </HudLabel>
-      <TypedConsole lines={[PROMPT[q]]} cps={STORY_CPS} reduced={reduced} instant={instant} onDone={() => setTyped(true)} label="Story question" testId="story-prompt" />
+      {minimal ? <h1 className="story-minimal-prompt" data-testid="story-prompt">{PROMPT[q]}</h1>
+        : <TypedConsole lines={[PROMPT[q]]} cps={STORY_CPS} reduced={reduced} instant={instant} onDone={() => setTyped(true)} label="Story question" testId="story-prompt" />}
       {typed && (
         <div className="story-answer" data-testid="story-answer">
           {control}
@@ -160,11 +173,12 @@ function Question({ q, qi, total, draft, setDraft, setStory, reduced, onStart }:
         </div>
       )}
       <div className="row">
-        <button type="button" className="btn" onClick={back} disabled={qi === 0}>
+        <button type="button" className="btn" onClick={back} disabled={qi === 0 && !onBackToEntry}>
           Back
         </button>
+        {minimal && <button type="button" className="btn" onClick={onSkip}>Skip - use defaults</button>}
         <button type="submit" className="btn btn-primary" data-testid="story-next">
-          {!typed ? 'Show answer options' : q === 'confirm' ? 'Start the story' : 'Next'}
+          {!typed ? 'Show answer options' : q === 'confirm' ? 'Start the story' : minimal ? 'Continue' : 'Next'}
         </button>
       </div>
     </form>

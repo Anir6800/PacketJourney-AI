@@ -1,14 +1,15 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { Instance, Instances, Line, OrbitControls, Outlines } from '@react-three/drei';
+import { Billboard, Instance, Instances, Line, MeshTransmissionMaterial, OrbitControls, Outlines } from '@react-three/drei';
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
-import { ACESFilmicToneMapping, CatmullRomCurve3, DoubleSide, Matrix4, type InstancedMesh, SRGBColorSpace, Vector3, type Mesh, type MeshStandardMaterial, type Object3D } from 'three';
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { ACESFilmicToneMapping, CatmullRomCurve3, DoubleSide, Matrix4, MeshPhysicalMaterial, type InstancedMesh, SRGBColorSpace, Vector3, type Mesh, type MeshStandardMaterial, type Object3D } from 'three';
+import type { Line2, LineSegments2, OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PMREMGenerator } from 'three';
 import { debug } from './debug.ts';
 import { color } from './tokens.ts';
 import { Segmented } from './ui.tsx';
+import { budgetStep, BUDGET_MISSES } from './scene/budget.ts';
 import { SHELL_ORDER, columnLayout, type SceneDevice, type SceneLink, type SceneModel, type ShellLayer, type Vec3 } from './scene/model.ts';
 import type { Selection } from './selection.ts';
 import { gsap } from './gsap.ts';
@@ -125,7 +126,7 @@ function LinkView({ l }: { l: SceneLink }) {
         <meshStandardMaterial color={color.bg1} emissive={l.active ? color.link : color.muted} emissiveIntensity={l.active ? 1.4 : 0.25} />
       </mesh>
       {/* Directional dashes: flow from a toward b; animated flow arrives with playback. */}
-      <Line points={pts} color={l.active ? color.link : '#2a3d5e'} lineWidth={1.5} dashed dashSize={0.12} gapSize={0.1} position={[0, 0.07, 0]} />
+      <Line points={pts} color={l.active ? color.link : '#3D3D3D'} lineWidth={1.5} dashed dashSize={0.12} gapSize={0.1} position={[0, 0.07, 0]} />
     </group>
   );
 }
@@ -174,12 +175,19 @@ function BitStream({ l, motion, step, reduced }: { l: SceneLink | null; motion: 
   );
 }
 
-function Shell({ layer, present, label, exploded, reduced, selected, onSelect, motion, step, adding, releasing, ttlFlash, glitch, dropped }: {
+// Hue-free layer encoding on the shell silhouette: Transport = dashed ring, Link = double ring (camera-facing).
+const ring = (r: number): Vec3[] => Array.from({ length: 65 }, (_, i) => [Math.cos((i / 64) * Math.PI * 2) * r, Math.sin((i / 64) * Math.PI * 2) * r, 0]);
+const RING_OUTER = ring(1);
+const RING_INNER = ring(0.93);
+const noRaycast = () => null;
+
+function Shell({ layer, present, label, exploded, reduced, fallback, selected, onSelect, motion, step, adding, releasing, ttlFlash, glitch, dropped }: {
   layer: ShellLayer; present: boolean; label: string; exploded: boolean; reduced: boolean; selected: boolean; onSelect: (s: Selection) => void;
-  motion: MotionApi; step: number; adding: boolean; releasing: boolean; ttlFlash: boolean; glitch: boolean; dropped: boolean;
+  motion: MotionApi; step: number; adding: boolean; releasing: boolean; ttlFlash: boolean; glitch: boolean; dropped: boolean; fallback: boolean;
 }) {
   const mesh = useRef<Mesh>(null);
-  const mat = useRef<MeshStandardMaterial>(null);
+  const mat = useRef<MeshPhysicalMaterial>(null);
+  const rings = useRef<(Line2 | LineSegments2 | null)[]>([]);
   const { hover, bind } = useHover();
   const target = present ? shellOpacity(layer) : 0;
   const r = SHELL_RADIUS[layer] * (exploded ? EXPLODE : 1);
@@ -208,6 +216,7 @@ function Shell({ layer, present, label, exploded, reduced, selected, onSelect, m
     o.position.set(jitter, -jitter * 0.6, 0);
     o.scale.setScalar(scale);
     m.opacity = opacity;
+    for (const l of rings.current) if (l) l.material.opacity = Math.min(1, opacity * 3);
     m.emissiveIntensity = ttlFlash && layer === 'internet' ? glow + 1.8 * Math.sin(Math.PI * p) : glow;
     o.visible = opacity > 0.004;
   });
@@ -233,24 +242,28 @@ function Shell({ layer, present, label, exploded, reduced, selected, onSelect, m
       {...(present ? bind : {})}
     >
       <sphereGeometry args={[1, 32, 24]} />
-      <meshStandardMaterial
-        ref={mat}
-        color={color[layer]}
-        emissive={color[layer]}
-        emissiveIntensity={layer === 'app' ? 2.2 : 0.6}
-        transparent
-        opacity={target}
-        depthWrite={false}
-        side={DoubleSide}
-        toneMapped={layer !== 'app'}
-      />
+      {!fallback && !reduced && layer !== 'app'
+        ? <MeshTransmissionMaterial ref={(value) => { mat.current = value instanceof MeshPhysicalMaterial ? value : null; }} color={color[layer]} chromaticAberration={0} samples={2} resolution={64}
+            transmissionSampler thickness={0.2} roughness={layer === 'internet' ? 0.45 : 0.08} emissive={color[layer]} emissiveIntensity={0.6}
+            transparent opacity={target} depthWrite={false} side={DoubleSide} />
+        : <meshPhysicalMaterial ref={mat} color={color[layer]} metalness={0.08} roughness={0.25} transmission={layer === 'app' ? 0 : 0.7}
+            emissive={color[layer]} emissiveIntensity={layer === 'app' ? 2.2 : 0.6} transparent opacity={target} depthWrite={false}
+            side={DoubleSide} toneMapped={layer !== 'app'} />}
       <Outlines visible={present && (hover || selected)} thickness={2} color={selected ? color.text : color[layer]} />
+      {(layer === 'transport' || layer === 'link') && (
+        <Billboard>
+          {(layer === 'link' ? [RING_OUTER, RING_INNER] : [RING_OUTER]).map((pts, i) => (
+            <Line key={i} ref={(l) => { rings.current[i] = l; }} points={pts} color={color.text} lineWidth={1.4} transparent opacity={0}
+              dashed={layer === 'transport'} dashSize={0.14} gapSize={0.1} raycast={noRaycast} />
+          ))}
+        </Billboard>
+      )}
     </mesh>
   );
 }
 
-function Packet({ model, rig, reduced, selected, onSelect, motion }: {
-  model: SceneModel; rig: Rig; reduced: boolean; selected: Selection; onSelect: (s: Selection) => void; motion: MotionApi;
+function Packet({ model, rig, reduced, fallback, selected, onSelect, motion }: {
+  model: SceneModel; rig: Rig; reduced: boolean; fallback: boolean; selected: Selection; onSelect: (s: Selection) => void; motion: MotionApi;
 }) {
   const p = model.packet;
   const exploded = rig === 'inspect';
@@ -287,6 +300,7 @@ function Packet({ model, rig, reduced, selected, onSelect, motion }: {
           label={p?.shells.find((s) => s.layer === layer)?.label ?? ''}
           exploded={exploded}
           reduced={reduced}
+          fallback={fallback}
           selected={selected.kind === 'layer' && selected.layer === layer}
           onSelect={onSelect}
           motion={motion}
@@ -442,9 +456,8 @@ function ClockFrames({ motion }: { motion: MotionApi }) {
 function BudgetWatch({ onMiss }: { onMiss: () => void }) {
   const misses = useRef(0);
   useFrame((_, dt) => {
-    if (dt > 0.05 && dt < 0.5) misses.current++;
-    else if (dt < 0.034) misses.current = Math.max(0, misses.current - 1);
-    if (misses.current > 30) onMiss();
+    misses.current = budgetStep(misses.current, dt);
+    if (misses.current > BUDGET_MISSES) onMiss();
   });
   return null;
 }
@@ -550,7 +563,7 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
         if (pj.type === 'link') links.push(pj);
         if (pj.type === 'shell') {
           const mm = (o as Mesh).material as MeshStandardMaterial;
-          shells.push({ ...pj, visible: o.visible, opacity: Math.round(mm.opacity * 1e4) / 1e4, scale: Math.round(o.scale.x * 1e4) / 1e4 });
+          shells.push({ ...pj, visible: o.visible, material: mm.constructor.name, opacity: Math.round(mm.opacity * 1e4) / 1e4, scale: Math.round(o.scale.x * 1e4) / 1e4 });
         }
         if (pj.type === 'packet') packetPos = o.getWorldPosition(new Vector3()).toArray().map((x) => Math.round(x * 1e4) / 1e4);
         if (pj.type === 'bitstream' && o.visible) bitStream = true;
@@ -567,7 +580,7 @@ function TestHook({ model, rig, fx }: { model: SceneModel; rig: Rig; fx: boolean
         devices,
         links,
         presentShells: shells.filter((s) => s.present).map((s) => ({ layer: s.layer, color: s.color, label: s.label })),
-        shellVisuals: shells.map((s) => ({ layer: s.layer, visible: s.visible, opacity: s.opacity, scale: s.scale })),
+        shellVisuals: shells.map((s) => ({ layer: s.layer, material: s.material, visible: s.visible, opacity: s.opacity, scale: s.scale })),
         packetPos,
         fracture,
         rings,
@@ -631,7 +644,7 @@ const Backdrop = memo(function Backdrop() {
         <directionalLight position={[4, 6, 5]} intensity={1.6} color={color.text} />
         <directionalLight position={[-5, 3, -6]} intensity={1.1} color={color.transport} />
         <ProceduralEnv />
-        <gridHelper args={[80, 160, '#1d3a63', '#16243d']} position={[0, -0.01, 0]} />
+        <gridHelper args={[80, 160, '#292929', '#1A1A1A']} position={[0, -0.01, 0]} />
     </>
   );
 });
@@ -639,7 +652,7 @@ const Backdrop = memo(function Backdrop() {
 const Effects = memo(function Effects() {
   return (
           <EffectComposer multisampling={4}>
-            <Bloom mipmapBlur luminanceThreshold={0.85} intensity={0.7} />
+            <Bloom mipmapBlur luminanceThreshold={0.92} intensity={0.42} />
             <Vignette offset={0.3} darkness={0.55} />
           </EffectComposer>
   );
@@ -664,6 +677,12 @@ export default function JourneyStage3D(p: Props) {
   }, []);
   const model = useMemo(() => (narrow ? columnLayout(p.model) : p.model), [narrow, p.model]);
   const [budgetMissed, setBudgetMissed] = useState(false);
+  useEffect(() => {
+    if (!import.meta.env.DEV && import.meta.env.MODE !== 'test') return;
+    debug.forceMaterialFallback = () => setBudgetMissed(true);
+    debug.materialFallback = () => budgetMissed;
+    return () => { delete debug.forceMaterialFallback; delete debug.materialFallback; };
+  }, [budgetMissed]);
   const fx = !p.reduced && !budgetMissed;
   const selDevice = p.selected.kind === 'device' ? p.selected.id : null;
   const active = model.links.find((l) => l.id === model.packet?.onLink);
@@ -673,7 +692,7 @@ export default function JourneyStage3D(p: Props) {
   useEffect(() => () => pointerOff(), []);
 
   return (
-    <div className="stage3d" data-testid="stage-3d" data-layout={model.layout} ref={wrap}>
+    <div className="stage3d" data-testid="stage-3d" data-layout={model.layout} data-rig={rig} ref={wrap}>
       <div className="stage3d-bar">
         <Segmented
           label="Camera"
@@ -687,7 +706,7 @@ export default function JourneyStage3D(p: Props) {
         />
       </div>
       <span className="hud-label stage3d-fx" data-testid="fx-status">
-        {fx ? 'Bloom + vignette' : p.reduced ? 'Effects off · Reduced motion' : 'Effects off · frame budget missed'}
+        {fx ? 'White bloom + glass' : p.reduced ? 'Effects off · Reduced motion' : 'Physical glass · frame budget missed'}
       </span>
       {/* Not a live region: App's single announcer speaks once per event. */}
       <p className="sr-only" data-testid="stage-summary">
@@ -745,7 +764,7 @@ export default function JourneyStage3D(p: Props) {
           .map((d) => (
             <TimerRing key={d.id} device={d} timer={model.timers.find((x) => x.device === d.id) ?? null} motion={p.motion} />
           ))}
-        <Packet model={model} rig={rig} reduced={p.reduced} selected={p.selected} onSelect={p.onSelect} motion={p.motion} />
+        <Packet model={model} rig={rig} reduced={p.reduced} fallback={budgetMissed} selected={p.selected} onSelect={p.onSelect} motion={p.motion} />
 
         <OrbitControls makeDefault enableDamping dampingFactor={0.12} minDistance={1.5} maxDistance={28} maxPolarAngle={Math.PI * 0.48} />
         <CameraRig rig={rig} model={model} motion={p.motion} reduced={p.reduced} />

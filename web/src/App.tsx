@@ -42,7 +42,9 @@ import {
   type Motion,
   type View,
 } from './settings.ts';
-import { useBoot } from './useBoot.ts';
+import { MessageEntry, RunBoot } from './Intro.tsx';
+import { gsap, loadFlip, useGSAP } from './gsap.ts';
+import { ease } from './tokens.ts';
 import { buildCues, locate, spanOf } from './motion/cues.ts';
 import { SPEEDS, type Speed } from './motion/clock.ts';
 import { MotionContext, createMotion, setCues } from './motion/motion.ts';
@@ -67,6 +69,8 @@ const PracticeView = lazy(() => import('./PracticeView.tsx').then((m) => ({ defa
 const TutorPanel = lazy(() => import('./tutor/TutorPanel.tsx').then((m) => ({ default: m.TutorPanel })));
 const FaultEditor = lazy(() => import('./faults/FaultEditor.tsx').then((m) => ({ default: m.FaultEditor })));
 const ScenarioPanel = lazy(() => import('./ScenarioPanel.tsx').then((m) => ({ default: m.ScenarioPanel })));
+const loadOpening = () => Promise.all([import('./Opening.tsx'), loadFlip()]).then(([m]) => m);
+const Opening = lazy(() => loadOpening().then((m) => ({ default: m.Opening })));
 const DirectorPanel = lazy(() => import('./DirectorPanel.tsx').then((m) => ({ default: m.DirectorPanel })));
 
 type Ai = 'checking' | 'online' | 'unconfigured' | 'offline';
@@ -128,6 +132,13 @@ export function App() {
       return 'story';
     }
   });
+  const [intro, setIntro] = useState<'entry' | 'questions' | 'boot' | 'opening' | 'ready'>(() => {
+    try { return sessionStorage.getItem('pj.booted') === '1' ? 'ready' : 'entry'; }
+    catch { return 'entry'; }
+  });
+  const [entryText, setEntryText] = useState('');
+  const [chromeIdle, setChromeIdle] = useState(false);
+  const [entrance, setEntrance] = useState(false);
   const [story, setStory] = useState<StoryState>(loadStory);
   const [view, setView] = useState<View>(initialPreferences.value.view);
   const [presetId, setPresetId] = useState<PresetId>('tcp-hello');
@@ -181,7 +192,7 @@ export function App() {
   const drawer = useMediaQuery('(max-width: 1280px) and (min-width: 769px)');
 
   // The 3D chunk loads after the intro: loading/compiling it during the intro stalls the main thread and stretches it.
-  const booting = useBoot(root, reduced, WORDMARK);
+  const booting = intro !== 'ready';
 
   useEffect(() => {
     document.documentElement.dataset.motion = motion;
@@ -437,6 +448,27 @@ export function App() {
     setStory((st) => ({ ...st, phase: 'play', beat: 0, config: structuredClone(draft) }));
     return true;
   };
+  const ready = () => {
+    try { sessionStorage.setItem('pj.booted', '1'); } catch { /* Session resume is optional. */ }
+    setIntro('ready');
+  };
+  const beginFromIntro = () => {
+    const ok = startStory();
+    if (ok) {
+      setMode('story');
+      if (reduced) ready();
+      else setIntro('boot');
+    }
+    return ok;
+  };
+  const newMessage = () => {
+    setEntryText('');
+    setEntrance(false);
+    setDraft(structuredClone(DEFAULT_SIM));
+    setStory(INITIAL_STORY);
+    setMode('story');
+    setIntro('entry');
+  };
   const replayAsStory = () => {
     setStory((st) => ({ ...INITIAL_STORY, auto: st.auto, phase: 'play', config: structuredClone(run.config) }));
     setMode('story');
@@ -521,12 +553,118 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  useEffect(() => {
+    const toggleFullscreen = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+        return;
+      }
+      if (e.key.toLowerCase() !== 'f' || e.altKey || e.ctrlKey || e.metaKey || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      else void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    };
+    window.addEventListener('keydown', toggleFullscreen);
+    return () => window.removeEventListener('keydown', toggleFullscreen);
+  }, []);
+
+  useEffect(() => {
+    if (intro !== 'ready') return;
+    let timer = 0;
+    const focusedControl = () => Boolean(document.activeElement?.closest('.hud, .inspector, .dock'));
+    const wake = () => {
+      setChromeIdle(false);
+      window.clearTimeout(timer);
+      if (document.fullscreenElement) timer = window.setTimeout(() => {
+        if (!focusedControl()) setChromeIdle(true);
+      }, 2500);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'i' && !(e.target instanceof HTMLInputElement)) setDrawerOpen(true);
+      wake();
+    };
+    window.addEventListener('pointermove', wake, { passive: true });
+    window.addEventListener('keydown', key);
+    document.addEventListener('focusin', wake);
+    document.addEventListener('fullscreenchange', wake);
+    wake();
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pointermove', wake);
+      window.removeEventListener('keydown', key);
+      document.removeEventListener('focusin', wake);
+      document.removeEventListener('fullscreenchange', wake);
+    };
+  }, [intro]);
+
+  useEffect(() => {
+    const el = root.current;
+    if (intro !== 'ready' || reduced || !el || !window.matchMedia('(pointer: fine)').matches) return;
+    let frame = 0;
+    let pane: HTMLElement | null = null;
+    let x = 0;
+    let y = 0;
+    const move = (e: PointerEvent) => {
+      pane = e.target instanceof Element ? e.target.closest<HTMLElement>('.glass') : null;
+      if (!pane) return;
+      const box = pane.getBoundingClientRect();
+      x = e.clientX - box.left;
+      y = e.clientY - box.top;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        pane?.style.setProperty('--sheen-x', `${x}px`);
+        pane?.style.setProperty('--sheen-y', `${y}px`);
+        frame = 0;
+      });
+    };
+    el.addEventListener('pointermove', move, { passive: true });
+    return () => { el.removeEventListener('pointermove', move); cancelAnimationFrame(frame); };
+  }, [intro, reduced]);
+
+  // After the opening: one white light sweep, then glass chrome rises 12px from blurred to sharp. Never under Reduced.
+  useGSAP(() => {
+    if (!entrance || intro !== 'ready' || reduced) return;
+    gsap.timeline()
+      .fromTo('.sweep', { autoAlpha: 1, xPercent: -100 }, { xPercent: 100, duration: 0.9, ease: ease.inOut })
+      .set('.sweep', { autoAlpha: 0 })
+      .fromTo('.hud-enter', { autoAlpha: 0, y: 12, filter: 'blur(8px)' },
+        { autoAlpha: 1, y: 0, filter: 'blur(0px)', duration: 0.6, ease: ease.out, stagger: 0.06, clearProps: 'filter,transform,opacity,visibility' }, 0.35);
+  }, { scope: root, dependencies: [entrance, intro, reduced] });
+
+  if (intro === 'entry') return <MessageEntry value={entryText} onChange={setEntryText} reduced={reduced}
+    directorMessage={presetById('tcp-hello').config.request} onDirector={() => {
+      loadPreset('tcp-hello', true);
+      if (!reduced) void document.documentElement.requestFullscreen?.().catch(() => undefined);
+      if (reduced) ready(); else setIntro('boot');
+    }} onEnter={() => {
+    setDraft((d) => ({ ...d, request: entryText }));
+    setStory({ ...INITIAL_STORY, q: 1 });
+    if (!reduced) void document.documentElement.requestFullscreen?.().catch(() => undefined);
+    setIntro('questions');
+  }} />;
+  if (intro === 'questions') return <main className="intro intro-questions" data-testid="intro-questions">
+    <StoryPanel draft={draft} setDraft={setDraft} beats={[]} story={story} setStory={setStory} reduced={reduced}
+      onStart={beginFromIntro} onSkip={beginFromIntro} onBackToEntry={() => setIntro('entry')} onPractice={() => undefined} minimal />
+    <span className="intro-tag mono">SIMULATED · local</span>
+  </main>;
+  if (intro === 'boot') void loadOpening(); // prefetch during the ≤ 3 s boot
+  if (intro === 'boot') return <RunBoot lines={lines} onComplete={() => setIntro('opening')} />;
+  if (intro === 'opening') return <MotionContext.Provider value={mo}><Suspense fallback={<main className="intro" />}>
+    <Opening run={run} beats={beats} cues={cues} motion={mo} onComplete={() => {
+      const journey = beats.findIndex((b) => b.chapter === 'journey');
+      if (journey >= 0) setStory((s) => ({ ...s, beat: journey }));
+      setEntrance(true);
+      ready();
+    }} />
+  </Suspense></MotionContext.Provider>;
+
   return (
     <MotionContext.Provider value={mo}>
-    <div className="app" ref={root} onKeyDown={(e) => e.key === 'Escape' && drawerOpen && setDrawerOpen(false)}>
+    <div className="app" ref={root} data-chrome-idle={chromeIdle} onKeyDown={(e) => e.key === 'Escape' && drawerOpen && setDrawerOpen(false)}>
       <p className="sr-only" aria-live="polite" data-testid="announcer">
         {curEv ? `Step ${journeyIndex + 1}: ${curEv.tag}. ${explain(curEv)}` : ''}
       </p>
+      <div className="sweep" aria-hidden="true" />
       <div className="grid-bg" aria-hidden="true">
         <div className="grid-plane" />
       </div>
@@ -542,6 +680,7 @@ export function App() {
           SIMULATED
         </span>
         <div className="hud-controls">
+          <button type="button" className="btn" onClick={newMessage}>New message</button>
           <Segmented label="Mode" value={mode} onChange={setAppMode} options={[{ value: 'story', label: 'Story' }, { value: 'lab', label: 'Lab' }, { value: 'director', label: 'Director' }]} />
           {mode !== 'director' && <Segmented label="Protocol" value={proto} onChange={setProto} options={[{ value: 'TCP', label: 'TCP' }, { value: 'UDP', label: 'UDP' }]} />}
           <Segmented label="Motion" value={motion} onChange={setMotion} options={[{ value: 'cinematic', label: 'Cinematic' }, { value: 'reduced', label: 'Reduced' }]} />
@@ -648,7 +787,7 @@ export function App() {
                   <div className="viewport">
                     {webglWanted && (
                       <div className="viewport-3d" hidden={contextLost}>
-                        <Suspense fallback={<Stage2D reason="Loading 3D stage… the 2D journey below is ready" />}>
+                        <Suspense fallback={<Stage2D reason="Loading 3D stage… the 2D journey below is ready" packet={model.packet} />}>
                           <JourneyStage3D
                             model={model}
                             selected={sel}
@@ -664,7 +803,7 @@ export function App() {
                         </Suspense>
                       </div>
                     )}
-                    {!webgl && <Stage2D reason={fallbackReason} />}
+                    {!webgl && <Stage2D reason={fallbackReason} packet={model.packet} />}
                     <CueOverlay run={run} cues={cues} reduced={reduced} />
                   </div>
                   <FaultChain events={run.events} step={journeyIndex} onStep={selectEvent} />

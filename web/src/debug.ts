@@ -21,6 +21,9 @@ export type PjDebug = {
   sceneGeometries?: () => number;
   /** Dev/test builds only: page coordinates of a named 3D object. */
   screenOf?: (name: string) => { x: number; y: number } | null;
+  /** Dev/test builds only: simulate sustained frame misses to exercise the material fallback. */
+  forceMaterialFallback?: () => void;
+  materialFallback?: () => boolean;
 };
 
 declare global {

@@ -2,6 +2,12 @@
 
 A local, educational TCP/IP visualizer. Everything shown is **SIMULATED** — the browser opens no real sockets and captures no traffic.
 
+The interface is monochrome liquid glass (`docs/DESIGN_V2.md`): it opens on a single message field, asks the Story questions one at a time, boots from the run's real values and turns your message into the packet. Lab, Compare, Practice, Tutor and Director stay one click away; **Alt+D** on the entry screen starts Director.
+
+| Entry | Questions | Journey (3D) | Journey (2D fallback) |
+|---|---|---|---|
+| ![Entry](docs/evidence/phase17/after/desktop-entry.png) | ![Question](docs/evidence/phase17/after/desktop-question.png) | ![3D](docs/evidence/phase17/after/desktop-story-3d.png) | ![2D](docs/evidence/phase17/after/desktop-story-2d.png) |
+
 ## Start locally
 
 Prerequisite: Node.js 22 or newer, including npm. PostgreSQL, Docker, Firebase and Python are not used.
@@ -61,4 +67,4 @@ Lab → **Save & present** can export/import a versioned JSON scenario, load the
 
 ## Docs
 
-`docs/SPEC.md` · `docs/PROTOCOL_MODEL.md` · `docs/EXPERIENCE.md` · `docs/STATUS.md` · `docs/DECISIONS.md` · `docs/TEST_EVIDENCE.md`
+`docs/SPEC.md` · `docs/PROTOCOL_MODEL.md` · `docs/DESIGN_V2.md` (supersedes the visuals in `docs/EXPERIENCE.md`) · `docs/DEMO_SCRIPT.md` · `docs/VIVA.md` · `docs/STATUS.md` · `docs/DECISIONS.md` · `docs/TEST_EVIDENCE.md`

@@ -2,34 +2,34 @@
 // GSAP reads the same numbers directly, and contrast.test.ts measures the colours.
 
 export const color = {
-  bg0: '#05070D',
-  bg1: '#0A1020',
-  glass: 'rgba(16,24,44,0.55)',
+  bg0: '#000000',
+  bg1: '#0A0A0A',
+  glass: 'rgba(255,255,255,0.05)',
   // Panels that sit over the 3D canvas use the scrim, so text stays AA even over a white pixel.
-  scrim: 'rgba(8,12,26,0.86)',
-  hairline: 'rgba(140,180,255,0.14)',
-  text: '#E6EEFF',
-  muted: '#8FA3C7',
-  app: '#A78BFA',
-  transport: '#38BDF8',
-  internet: '#2DD4BF',
-  link: '#FBBF24',
-  physical: '#F472B6',
-  success: '#34D399',
-  danger: '#F87171',
+  scrim: 'rgba(10,10,10,0.92)',
+  hairline: 'rgba(255,255,255,0.12)',
+  text: '#FAFAFA',
+  muted: '#A3A3A3',
+  app: '#FAFAFA',
+  transport: '#D9D9D9',
+  internet: '#BFBFBF',
+  link: '#E5E5E5',
+  physical: '#B5B5B5',
+  success: '#FAFAFA',
+  danger: '#FAFAFA',
 } as const;
 
 /** Seconds (GSAP units). */
 export const dur = {
   micro: 0.16,
   tab: 0.24,
-  panel: 0.28,
-  stagger: 0.075,
+  panel: 0.24,
+  stagger: 0.02,
   bootMax: 2.5,
 } as const;
 
 export const ease = {
-  out: 'power3.out',
+  out: 'power4.out',
   inOut: 'expo.inOut',
 } as const;
 

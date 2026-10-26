@@ -1,5 +1,30 @@
 # Status
 
+## Phase 17 · Redesign: monochrome liquid glass, full-screen entry — COMPLETE (2026-10-27)
+
+### Completed
+- `docs/DESIGN_V2.md` (tokens, entry flow, motion, as-built notes) written before code, with baseline screenshots of every main view at 1440×900 and 390×844 in `docs/evidence/phase17/before/`. The engine, events, cues and protocol facts are untouched.
+- Monochrome tokens everywhere: UI, SVG, 2D fallback, 3D materials/lights/grid, bloom (white, threshold 0.92), focus rings, fault states, print. Layers: solid white core / dashed / frosted / double / dotted bits, plus label, code and glyph, in CSS, SVG (`LAYER_LINE`) and 3D (billboard rings). Failure = inverted panel + ✕; drop = struck marker + `DROPPED - simulated`. Inter + JetBrains Mono bundled; tabular numerals.
+- Liquid glass: 5% white fill, blur 24px saturate(0), specular top edge, depth shadow, rAF-throttled cursor sheen (off on touch and Reduced). 3D: greyscale `MeshTransmissionMaterial` shells with automatic `MeshPhysicalMaterial` fallback after 12 back-to-back slow frames (`scene/budget.ts`).
+- Entry flow: message-only first screen (UTF-8 count, 1–256 B validation, autofocus), fullscreen on Enter (denial silent; F/Esc), one-at-a-time questions with defaults / Skip / Backspace-back, ≤ 3 s skippable boot with engine-read lines and a hairline progress bar, a cue-driven opening (Flip + hex scramble + shells), then a white sweep and a 12px blurred→sharp chrome rise. Fullscreen chrome auto-hides after 2.5 s idle, never while focused. Director starts from the entry with Alt+D. New message returns to the entry.
+- 2D fallback now draws the packet's nested shells from the pure scene model. Lab, Compare, Practice, Tutor and Director unchanged in behaviour.
+- Docs: README (screenshots, docs list), DEMO_SCRIPT (new flow), VIVA (new), EXPERIENCE (superseded note, budgets), DECISIONS D-081–D-083.
+
+### Commands and results
+- Final `npm run verify`: **exit 0**: typecheck 0, lint 0, Vitest **284/284** (20 files), build ok, secrets clean, `check:monochrome` **74 files, no hued literals**, Playwright **61/61** in **9.5 min**.
+- Previous full run: typecheck 0, lint 0, Vitest **284/284**, build ok, secrets clean, monochrome **74 files clean**, Playwright **60/61**, exit 1. The one failure was `net::ERR_NO_BUFFER_SPACE` on page load; the isolated `phase17.spec.ts` rerun passed **6/6**. The first full run (53/61) and its repairs are in `TEST_EVIDENCE.md`.
+- Production preview smoke: 3D/2D ok, errors 0; production entry flow driven end to end with engine boot lines and lazy Opening/Flip, errors 0.
+- Build: entry **146.13 kB gzip**, lazy 3D **287.04 kB gzip**, Opening + Flip lazy (10.35 kB gzip).
+
+### Open issues
+- Initial JS counting the four small preloaded shared chunks is 153.3 kB (`gzip -c`), above the 150 kB target under that stricter definition. The entry chunk alone (the metric used since phase 01) is 146.13 kB.
+- Real-hardware frame time is **NOT MEASURED** (SwiftShader samples only). Optional SVG refraction filter: **NOT BUILT**.
+- Follow-packet view, routed, desktop: edge-clamped device and subnet labels crowd at the right edge (pre-existing clamping).
+- Late in long dev-server suites on this Windows machine, a page load can fail with `net::ERR_NO_BUFFER_SPACE` (environmental; not seen in isolated or production runs).
+- Upstream `THREE.Clock` deprecation warning persists. Scoped protocol omissions are unchanged (see phase 15).
+
+## Next phase: **18**
+
 ## Phase 15 · Full engineering verification loop — COMPLETE (2026-10-27)
 
 ### Completed

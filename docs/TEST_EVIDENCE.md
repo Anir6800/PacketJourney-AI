@@ -1,5 +1,39 @@
 # Test Evidence
 
+## Phase 17 — 2026-10-27
+
+### Gates and environment
+- Same machine and harness as phase 15 (Windows, Playwright 1.64.1 headless Chromium, SwiftShader CPU WebGL, one worker, Vite dev port 5179).
+- Full `npm run verify`, run 1 (before repairs): typecheck 0, lint 0, Vitest 284/284, build ok, secrets clean, monochrome clean, Playwright **53/61**. The 8 failures and their fixes are listed in the repair log below.
+- Full `npm run verify`, run 2: typecheck 0, lint 0, Vitest **284/284** (20 files), build ok, secrets clean, `check:monochrome` **74 files, no hued literals** (web/src + web/dist), Playwright **60/61** in 9.1 min; **exit 1**. The only failure was `phase17 › message-first…` at `page.goto('/')`, logged as `net::ERR_NO_BUFFER_SPACE` (Windows socket buffer exhaustion while the dev server served the page late in the suite). Isolated rerun of `e2e/phase17.spec.ts`: **6/6**.
+- Full `npm run verify`, run 3: **exit 0**: typecheck 0, lint 0, Vitest **284/284**, build ok (entry 146.13 kB gzip), secrets clean, monochrome 74 files clean, Playwright **61/61** in 9.5 min (frame sample (d): 35 frames, median 17 ms, p95 667 ms, max 1150 ms).
+- Production: `npm run start -w server` + `npm run preview -w web` (4173). `scripts/verify-production.mjs`: 3D loaded (1 chunk), 2D journey loaded and persisted, console/page/request errors **0**. A one-off Playwright script also drove the new entry flow against the production build: no HUD/rail/stage/dock in the DOM on first paint; boot lines `encode → 5 bytes UTF-8: 48 65 6C 6C 6F`, `UDP header 8 B → datagram 13 B · checksum 0x7933`, `IPv4 header 20 B → packet 33 B · total length 33 · checksum 0x1CCC`, `Ethernet II 14 B + pad 13 B + FCS 4 B → frame 64 B · FCS 0x2A61EE30 → wire 30 EE 61 2A`, …, `SIMULATED run ready`; Opening and Flip loaded as lazy chunks; then 3D stage; errors **0**.
+- Build: entry chunk **146.13 kB gzip** (phase 15: 146.48), lazy 3D **287.04 kB gzip**, Opening 1.10 kB + Flip 9.25 kB gzip (lazy). With the four small shared chunks `index.html` also preloads, initial JS is 153.3 kB by `gzip -c`.
+
+### Acceptance evidence
+- **No hue**: `scripts/check-monochrome.mjs` (hex/rgb/hsl literals must have R=G=B) over source and built CSS/JS; manual grep for named CSS colours in `web/src`: none. **3D pixels**: `phase17 › 3D transmission shell…` samples the composited canvas every 16 px: >8 shades and max |R−G|,|G−B| ≤ 6. DOM text in screenshots shows faint coloured fringes from Windows ClearType sub-pixel antialiasing; these are rasteriser artefacts, not colour values.
+- **First screen**: DOM assertion `.hud, .rail, .stage, .dock` count 0 with the entry visible, at 1440×900 and 390×844.
+- **Flow**: Enter → transport/ports/scope/fault/confirm one at a time → boot lines contain the engine values (`10 bytes UTF-8`, `datagram 18 B`, `total length 38`, `frame 64 B` for `héllo ✓`, routed UDP) → opening (`data-message` and hex `68 C3 A9 6C 6C 6F 20 E2 9C 93`) → Story player + Mode group + 3D stage → 2D view with nested SVG shells, at both sizes.
+- **Fullscreen**: requests are stubbed on `Element.prototype` (the first version patched `document.documentElement` before it existed, so it never ran; fixed). Denial: Enter requests once, rejection is silent, flow continues. Reduced: no request (a request would throw), no boot, Reduced pressed. F toggles, Esc exits, New message returns to the entry.
+- **Auto-hide**: in fullscreen a focused control keeps `data-chrome-idle="false"` past 2.5 s; after blur and idle it becomes `true`; I/pointer brings it back. Hidden chrome uses opacity only.
+- **Contrast**: `web/src/contrast.test.ts` measures 9 text tokens on 9 backings (81 pairs), including glass over black/#0A0A0A/#111111/#1A1A1A, the active segment, the primary button, the canvas scrim over white, and the inverted failure panel. Minimum is 4.97:1 (muted on the primary button). All are ≥ 4.5.
+- **Frame timing / fallback**: `budget.test.ts` covers the pure rule (13 slow frames degrade; fast frames recover; >0.5 s gaps ignored). `phase17 › 3D transmission shell…` forces the fallback: every shell becomes `MeshPhysicalMaterial`. Page frame intervals during 3D playback in headless SwiftShader, from three samples: (a) 46 frames, median 33 ms, p95 367 ms, max 600 ms, and the automatic fallback engaged (`Physical glass · frame budget missed`); (b) 34 frames, median 17 ms, p95 683 ms, max 1217 ms; (c) 37 frames, median 17 ms, p95 700 ms, max 1167 ms. CPU-rasterised, not a device claim: real-hardware frame time is **NOT MEASURED**.
+- **Renderer memory**: 25 geometries / 3 textures, stable across five resets (was 22/2; the added ring lines and transmission buffer account for the difference).
+
+### Screenshots inspected
+- Before: `docs/evidence/phase17/before/` (16 views: Story, Lab 3D/2D, Headers, Delivery scopes, Compare, Practice, Director × 1440/390). Coloured three-column dashboard at first paint.
+- After: `docs/evidence/phase17/after/`. Entry: single centred glass field, byte counter, small tag; nothing else. Question: one prompt, default selected, Back / Skip / Continue (the heavy focus outline on the form was replaced by a brighter glass edge). Boot: engine lines with the hairline progress. Opening: white core with solid and dashed shells and hex underneath. Story 3D: grey topology, white bit stream, shell list, chrome sharp after the entrance. Story 2D: nested shells (solid core, dashed, frosted, double, dotted bits) with code labels. Phone: stacked glass chrome; stage below the fold.
+- Issues found by opening screenshots and fixed: captures taken mid-entrance (blurred panels, blank canvas), so tests now wait for the entrance and wake idle chrome; oversized, clipped 2D shell labels, now short codes at 9 px; opacity transition fighting the GSAP entrance (computed 0.47 with inline 1).
+- Remaining: in Follow packet on the routed desktop view, the edge-clamped `R2 · router` / `B · host` labels and the L2/L3 subnet labels crowd at the right edge (phase 14 clamping; not introduced by the restyle).
+
+### Repair log
+1. Run 1 failures in `shell.spec.ts` (4): tests of the removed wordmark boot and the old `rgb(5,7,13)` background. Rewritten for entry → questions → run boot with the same intent (once per session, key/click skip, Reduced = no boot and no fullscreen) and `rgb(0,0,0)`.
+2. `stage3d.spec.ts`: shell colour expectation used the old hues; now the grey tokens.
+3. `motion.spec.ts` (2): the automatic fallback engaged mid-test (after lowering the threshold), changing the material name in the compared state and recompiling shaders (>5 s commit wait). The material tier is excluded from the reproducibility snapshot; every compared fact is unchanged; the commit wait is 15 s.
+4. Frame budget: the first measurement showed 4 s of slow playback without degradation, and a dt probe showed 16 ms renders separated by 370–970 ms stalls. The threshold is now 12 frames, in a unit-tested pure rule.
+5. Initial JS grew to 157.74 kB gzip (Flip ~9.7 kB). Flip and the opening are now lazy (prefetched at boot, registered in `gsap.ts`); the entry is back to 146.13 kB. A first attempt with top-level await fragmented the bundle into 20 preloaded chunks (158.8 kB) and was replaced.
+6. phase17 test: phone-width pointer wake at x=700 was outside the 390 px viewport; the entrance/idle race; the two-flow timeout raised to 240 s.
+
 ## Phase 15 — 2026-10-27
 
 ### Gates and environment

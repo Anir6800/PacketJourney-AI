@@ -23,7 +23,7 @@ test('dark shell shows SIMULATED badge and AI status', async ({ page }) => {
   // Whether AI is configured depends on the local .env; the badge must match what the server reports.
   const health = (await (await page.request.get('/api/health')).json()) as { aiConfigured: boolean };
   await expect(page.getByTestId('ai-status')).toHaveText(health.aiConfigured ? 'online' : 'server up · AI not configured');
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(5, 7, 13)');
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(0, 0, 0)');
 });
 
 test('View 2D shows the SVG fallback', async ({ page }) => {
@@ -34,42 +34,49 @@ test('View 2D shows the SVG fallback', async ({ page }) => {
   await expect(page.locator('canvas')).toHaveCount(0);
 });
 
-test('boot: plays once under StrictMode, completes, then never replays this session', async ({ page }) => {
+// Phase 17 entry: message → questions (Skip uses defaults) → run boot, which counts its completions.
+async function toBoot(page: Page) {
   await page.goto('/');
-  await page.waitForFunction(() => window.__pj.bootCompletions === 1, null, { timeout: 4000 });
+  await page.getByRole('textbox', { name: 'Message to send' }).fill('Hello');
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Skip - use defaults' }).click();
+}
+
+test('boot: plays once under StrictMode, completes, then never replays this session', async ({ page }) => {
+  await toBoot(page);
+  await expect(page.getByTestId('run-boot')).toBeVisible();
+  await page.waitForFunction(() => window.__pj.bootCompletions === 1, null, { timeout: 6000 });
   await page.waitForTimeout(600);
   expect(await page.evaluate(() => window.__pj.bootCompletions)).toBe(1);
-  expect(await page.evaluate(() => window.__pj.gsapActive())).toBe(0);
+  await expect(page.getByTestId('story-player')).toBeVisible({ timeout: 20_000 });
   await page.reload();
-  await page.waitForTimeout(300);
-  expect(await page.evaluate(() => window.__pj.bootCompletions)).toBe(0);
   await expect(page.locator('.wordmark-text')).toHaveText('PacketJourney');
+  expect(await page.evaluate(() => window.__pj.bootCompletions)).toBe(0);
+  await expect(page.getByTestId('run-boot')).toHaveCount(0);
 });
 
 test('boot: skippable by key and by click', async ({ browser }) => {
   for (const how of ['key', 'click'] as const) {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    await page.goto('/');
-    await page.waitForTimeout(150);
+    await toBoot(page);
+    await expect(page.getByTestId('run-boot')).toBeVisible();
     if (how === 'key') await page.keyboard.press('Shift');
     else await page.mouse.click(5, 5);
+    await expect(page.getByTestId('opening')).toBeVisible();
     expect(await page.evaluate(() => window.__pj.bootCompletions)).toBe(1);
-    expect(await page.evaluate(() => window.__pj.gsapActive())).toBe(0);
-    await expect(page.locator('.wordmark-text')).toHaveText('PacketJourney');
-    const opacities = await page.locator('.hud-enter, .badge-sim').evaluateAll((els) => els.map((e) => getComputedStyle(e).opacity));
-    expect(opacities.every((o) => o === '1')).toBe(true);
     await ctx.close();
   }
 });
 
-test('reduced motion: final states, no tweens, console text instant', async ({ browser }) => {
+test('reduced motion: no boot, no fullscreen, final states, console text instant', async ({ browser }) => {
   const ctx = await browser.newContext({ reducedMotion: 'reduce' });
   const page = await ctx.newPage();
-  await page.goto('/');
+  await toBoot(page);
   await expect(page.getByRole('group', { name: 'Motion' }).getByRole('button', { name: 'Reduced' })).toHaveAttribute('aria-pressed', 'true');
-  expect(await page.evaluate(() => window.__pj.gsapActive())).toBe(0);
   expect(await page.evaluate(() => window.__pj.bootCompletions)).toBe(0);
+  expect(await page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  expect(await page.evaluate(() => window.__pj.gsapActive())).toBe(0);
   await expect(page.locator('.wordmark-text')).toHaveText('PacketJourney');
   await expect(page.getByTestId('console-log').locator('p')).toHaveCount(5);
   expect(await page.locator('.grid-plane').evaluate((e) => getComputedStyle(e).animationName)).toBe('none');

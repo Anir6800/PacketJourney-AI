@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check:secrets": "node scripts/check-no-secrets.mjs",
-    "verify": "npm run typecheck && npm run lint && npm test && npm run build && npm run check:secrets && npm run test:e2e"
+    "check:monochrome": "node scripts/check-monochrome.mjs",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build && npm run check:secrets && npm run check:monochrome && npm run test:e2e"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

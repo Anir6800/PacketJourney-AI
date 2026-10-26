@@ -39,16 +39,17 @@ const visible = async (page: Page) => {
   await page.waitForFunction(
     () => (window.__pj.scene?.() as { step: number }).step === (window.__pj.motion?.() as { index: number }).index,
     null,
-    { polling: 50, timeout: 5000 },
+    // 15 s: an automatic frame-budget fallback mid-test recompiles the shell shaders once under SwiftShader.
+    { polling: 50, timeout: 15_000 },
   );
   // Cue progress is applied in useFrame: let the requested frame render before reading.
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
   return page.evaluate(() => {
-    const sc = window.__pj.scene?.() as { step: number; presentShells: unknown; shellVisuals: unknown; packetPos: unknown; labels: unknown };
+    const sc = window.__pj.scene?.() as { step: number; presentShells: unknown; shellVisuals: { material?: string }[]; packetPos: unknown; labels: unknown };
     const m = window.__pj.motion?.() as { index: number; vt: number };
     const txt = (sel: string) => document.querySelector(sel)?.textContent ?? '';
     return JSON.stringify({
-      index: m.index, vt: m.vt, step: sc.step, shells: sc.presentShells, visuals: sc.shellVisuals, packet: sc.packetPos, labels: sc.labels,
+      index: m.index, vt: m.vt, step: sc.step, shells: sc.presentShells, visuals: sc.shellVisuals.map((v) => ({ ...v, material: undefined })), packet: sc.packetPos, labels: sc.labels,
       decoder: txt('.decoder-head') + '|' + txt('[data-testid=decoder-value]'),
       tcp: Array.from(document.querySelectorAll('[data-testid^=tcp-state-]'), (e) => e.textContent).join(','),
       seq: Array.from(document.querySelectorAll('[data-testid^=snd-nxt-], [data-testid^=rcv-nxt-]'), (e) => e.textContent).join(','),

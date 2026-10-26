@@ -46,7 +46,7 @@ export type ScenePacket = {
   dropped: boolean;
   /** This event is the wire corruption itself: the shell glitches briefly. */
   glitch: boolean;
-  /** Frame byte flipped by a corrupt fault (for the pink byte highlight). */
+  /** Frame byte flipped by a corrupt fault (for the inverted byte highlight). */
   corruptByte: number | null;
 };
 /** An armed retransmission timer: the ring counts down from totalMs to the deadline in virtual time. */
@@ -179,7 +179,7 @@ export function sceneModel(run: SimRun, index: number, summary: string): SceneMo
   const notice: SceneNotice | null = !ev
     ? null
     : ev.type === 'drop'
-      ? { device: ev.device, text: 'DROPPED · simulated', tone: 'danger' }
+      ? { device: ev.device, text: 'DROPPED - simulated', tone: 'danger' }
       : ev.tag.startsWith('fault:corrupt')
         ? { device: ev.device, text: 'BIT FLIP · simulated', tone: 'danger' }
         : ev.tag === 'tcp:duplicate' || ev.tag === 'tcp:duplicate-fin'

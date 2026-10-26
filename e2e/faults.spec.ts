@@ -64,17 +64,17 @@ test('dropped TCP data frame: drop visuals at the reporting receiver (3D and 2D)
 
   await stepTo(page, 'drop:fault');
   const s = await scene(page);
-  expect(s.notice).toEqual({ device: 'R2', text: 'DROPPED · simulated', tone: 'danger' });
+  expect(s.notice).toEqual({ device: 'R2', text: 'DROPPED - simulated', tone: 'danger' });
   expect(s.fracture).toBe(true);
-  await expect(page.locator('.label3d-notice')).toHaveText('DROPPED · simulated');
-  await expect(page.getByTestId('svg-notice')).toHaveText('DROPPED · simulated');
+  await expect(page.locator('.label3d-notice')).toHaveText('DROPPED - simulated');
+  await expect(page.getByTestId('svg-notice')).toHaveText('DROPPED - simulated');
   // RTO ring: armed for A while the data is outstanding.
   expect(s.rings.find((r) => r.device === 'A')?.lit ?? 0).toBeGreaterThan(0);
   await expect(page.getByTestId('rto-ring-A')).toBeVisible();
 
   // Same step in 2D view.
   await page.getByRole('group', { name: 'View' }).getByRole('button', { name: '2D' }).click();
-  await expect(page.getByTestId('svg-notice')).toHaveText('DROPPED · simulated');
+  await expect(page.getByTestId('svg-notice')).toHaveText('DROPPED - simulated');
   await expect(page.getByTestId('rto-ring-A')).toBeVisible();
 
   // Chain chip jumps to the retransmission.
@@ -82,7 +82,7 @@ test('dropped TCP data frame: drop visuals at the reporting receiver (3D and 2D)
   await expect(page.getByTestId('journey-caption')).toContainText('tcp:retransmit');
 });
 
-test('corrupted wire bit: pink byte, FCS fails at the next receiver; advanced corruption fails the transport checksum', async ({ page }) => {
+test('corrupted wire bit: inverted byte, FCS fails at the next receiver; advanced corruption fails the transport checksum', async ({ page }) => {
   await setup(page, 'UDP', 'same-lan');
   await addFault(page, 'corrupt-wire', { packet: 'data', offset: 8, bit: 0 });
   await runBtn(page).click();

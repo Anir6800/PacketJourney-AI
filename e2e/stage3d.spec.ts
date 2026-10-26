@@ -120,7 +120,7 @@ test('shells mirror snapshots at encapsulation, router and decapsulation points'
   await step(page, 'encap:link');
   let s = await scene(page);
   expect(s.presentShells.map((x) => [x.layer, x.color])).toEqual([
-    ['link', '#FBBF24'], ['internet', '#2DD4BF'], ['transport', '#38BDF8'], ['app', '#A78BFA'],
+    ['link', '#E5E5E5'], ['internet', '#BFBFBF'], ['transport', '#D9D9D9'], ['app', '#FAFAFA'], // greys only (DESIGN_V2)
   ]);
   expect(s.presentShells[0]?.label).toBe('Ethernet · 02:00:00:00:0a:10 → 02:00:00:00:01:00');
 

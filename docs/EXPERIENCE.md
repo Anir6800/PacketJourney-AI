@@ -1,5 +1,7 @@
 # Experience Spec
 
+> **Phase 17:** `DESIGN_V2.md` supersedes every colour, typography, glass and motion value below (monochrome liquid glass, message-first entry). Structure, accessibility and performance rules here still apply.
+
 All colour and motion values live in `web/src/tokens.ts`. CSS receives them as custom properties (`--c-*`, `--dur-*`, `--ease-*`) via `applyTokens()`; GSAP imports the same numbers; `contrast.test.ts` measures the same colours. Change a value there, never in CSS.
 
 ## Direction
@@ -110,11 +112,11 @@ Overview (wide, elevated) · Stack (close orbit on one host) · Follow (trails p
 ## Performance budgets (targets)
 | Budget | Target | Measured |
 |---|---|---|
-| Initial JS before 3D chunk (gzip) | ≤ 150 KB | build output 125.76 KB gzip (phase 01); runtime NOT MEASURED |
-| Lazy 3D chunk (gzip) | ≤ 300 KB | build output 281.25 KB gzip (phase 08, journey stage) |
+| Initial JS before 3D chunk (gzip) | ≤ 150 KB | phase 17: entry chunk 146.13 kB gzip (Vite); 153.3 kB incl. 4 small preloaded shared chunks (gzip -c); runtime NOT MEASURED |
+| Lazy 3D chunk (gzip) | ≤ 300 KB | phase 17: 287.04 kB gzip (adds MeshTransmissionMaterial) |
 | Draw calls per frame | ≤ 100 | 1 smoke mesh only; real scene NOT MEASURED |
 | DPR cap | 2 | enforced `dpr={[1, 2]}` |
-| Frame time (Cinematic, mid laptop) | ≤ 16.7 ms | NOT MEASURED |
+| Frame time (Cinematic, mid laptop) | ≤ 16.7 ms | NOT MEASURED on real hardware; headless SwiftShader samples in TEST_EVIDENCE (not representative) |
 
 ## Accessibility
 - Essential text in DOM; the 3D journey's labels are projected DOM, and every 3D entity has a 2D equivalent (journey map nodes, layer stack, inspector).

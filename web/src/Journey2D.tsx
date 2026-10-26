@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { explain, hex, iface, packetFromFrame, routeText, type SimRun, type SimState, type SimulationEvent } from '@packetjourney/shared';
 import { Segmented } from './ui.tsx';
-import { LAYERS, LayerGlyph, type LayerId } from './layers.tsx';
+import { LAYERS, LAYER_LINE, LayerGlyph, type LayerId } from './layers.tsx';
 import { fmtTime } from './format.ts';
 import { TcpCards } from './TcpCards.tsx';
 import { depthOf, type SceneNotice, type SceneTimer } from './scene/model.ts';
@@ -15,7 +15,7 @@ const KIND_LABEL: Record<string, string> = {
   'fin-client': 'FIN', 'ack-fin-client': 'ACK', 'fin-server': 'FIN', 'ack-fin-server': 'ACK',
 };
 
-/** Hex bytes; `flip` (absolute frame index) glows pink when it falls in this run of bytes starting at `base`. */
+/** Hex bytes; `flip` (absolute frame index) is shown inverted when it falls in this run of bytes starting at `base`. */
 function hexRun(b: readonly number[], base: number, flip: number | null, max = 48) {
   const shown = b.slice(0, max);
   const more = b.length > max ? ` … +${b.length - max} B` : '';
@@ -293,11 +293,13 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, 
         })}
         {pkt && (
           <g transform={`translate(${marker.x - 38}, ${marker.y - 14})`} data-testid="packet-marker">
-            <rect width={76} height={26} rx={7} fill="var(--c-bg1)" stroke={dropped ? 'var(--c-danger)' : `var(--c-${ev.layer})`} strokeWidth={2} />
-            <text x={38} y={18} textAnchor="middle" className="svg-mono">
+            <rect width={76} height={26} rx={7} strokeWidth={2} {...LAYER_LINE[ev.layer]} fill={ev.layer === 'internet' ? LAYER_LINE.internet.fill : 'var(--c-bg1)'} />
+            {ev.layer === 'link' && <rect x={3} y={3} width={70} height={20} rx={5} fill="none" stroke="var(--c-text)" strokeWidth={1} />}
+            <text x={38} y={18} textAnchor="middle" className="svg-mono" textDecoration={dropped ? 'line-through' : undefined}>
               {dropped ? '✕ ' : ''}
               {KIND_LABEL[pkt.kind] ?? pkt.kind}
             </text>
+            {dropped && <line x1={4} y1={13} x2={72} y2={13} stroke="var(--c-text)" strokeWidth={1.5} data-testid="packet-strike" />}
           </g>
         )}
         {fx?.timers.map((tm) => {
@@ -315,9 +317,13 @@ export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice, 
           );
         })}
         {fx?.notice && (
-          <text x={xOf(fx.notice.device)} y={60} textAnchor="middle" className={`svg-notice svg-notice-${fx.notice.tone}`} data-testid="svg-notice">
-            {fx.notice.text}
-          </text>
+          <g>
+            {/* Failure = inverted panel (white fill, black text) + glyph + text; no hue. */}
+            {fx.notice.tone === 'danger' && <rect x={xOf(fx.notice.device) - fx.notice.text.length * 3.4 - 6} y={47} width={fx.notice.text.length * 6.8 + 12} height={18} rx={4} fill="var(--c-text)" />}
+            <text x={xOf(fx.notice.device)} y={60} textAnchor="middle" className={`svg-notice svg-notice-${fx.notice.tone}`} data-testid="svg-notice">
+              {fx.notice.text}
+            </text>
+          </g>
         )}
       </svg>
 
