@@ -27,3 +27,4 @@ export * from './sim/tcp.ts';
 export * from './sim/http.ts';
 export * from './sim/session.ts';
 export * from './sim/compare.ts';
+export * from './tutor.ts';

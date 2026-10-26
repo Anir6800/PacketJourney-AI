@@ -49,6 +49,7 @@ const FieldDetail = lazy(() => import('./HeaderView.tsx').then((m) => ({ default
 const SessionPanel = lazy(() => import('./SessionPanel.tsx').then((m) => ({ default: m.SessionPanel })));
 const CompareView = lazy(() => import('./CompareView.tsx').then((m) => ({ default: m.CompareView })));
 const PracticeView = lazy(() => import('./PracticeView.tsx').then((m) => ({ default: m.PracticeView })));
+const TutorPanel = lazy(() => import('./tutor/TutorPanel.tsx').then((m) => ({ default: m.TutorPanel })));
 const FaultEditor = lazy(() => import('./faults/FaultEditor.tsx').then((m) => ({ default: m.FaultEditor })));
 
 type Ai = 'checking' | 'online' | 'unconfigured' | 'offline';
@@ -107,6 +108,8 @@ export function App() {
   const [contextLost, setContextLost] = useState(false);
   const [tab, setTab] = useState<Tab>('journey');
   const [ai, setAi] = useState<Ai>('checking');
+  /** Field ids the tutor referenced: pulse once in the inspector (the key restarts the animation). */
+  const [pulse, setPulse] = useState<{ ids: string[]; n: number }>({ ids: [], n: 0 });
   const sel = useSelection();
   const selected: LayerId = sel.kind === 'layer' ? sel.layer : 'transport';
   /** True when the inspector shows the shared 3D/2D selection rather than an event snapshot or header field. */
@@ -613,7 +616,7 @@ export function App() {
                       const f = field(snap, id);
                       return f ? (
                         <div key={id} style={{ display: 'contents' }} data-field={id}>
-                          <dt className="hot">{f.name}</dt>
+                          <dt className={pulse.ids.includes(id) ? 'hot pulse' : 'hot'} key={`${id}:${pulse.n}`}>{f.name}</dt>
                           <dd className="hot">{f.display}</dd>
                         </div>
                       ) : null;
@@ -637,12 +640,25 @@ export function App() {
                 {snap.fields
                   .filter((f) => f.layer === selected)
                   .map((f) => (
-                    <li key={f.id}>{f.name}</li>
+                    <li key={`${f.id}:${pulse.n}`} className={pulse.ids.includes(f.id) ? 'pulse' : undefined} data-field-id={f.id}>
+                      {f.name}: <span className="mono">{f.display}</span>
+                    </li>
                   ))}
               </ul>
               <p className="small muted">Open the Headers tab and select a field to see its bits and bytes.</p>
             </>
           )}
+          <Suspense fallback={null}>
+            <TutorPanel
+              run={run}
+              step={journeyIndex}
+              layer={sel.kind === 'layer' ? selected : null}
+              field={selField ?? null}
+              aiConfigured={ai === 'online'}
+              reduced={reduced}
+              onPulse={(ids) => setPulse((p) => ({ ids, n: p.n + 1 }))}
+            />
+          </Suspense>
           <HudLabel>System</HudLabel>
           <dl className="facts mono">
             <dt>AI tutor</dt>

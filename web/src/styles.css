@@ -438,3 +438,11 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .practice-q[data-state='wrong'] { border-color: var(--c-danger); }
 .practice-reveal .ok { color: var(--c-success); }
 .practice-reveal .hot { color: var(--c-text); background: rgba(56, 189, 248, 0.1); }
+
+/* Tutor (phase 13) */
+.tutor { display: grid; gap: 6px; margin: 10px 0; padding: 8px 10px; border: 1px solid var(--c-hairline); border-left: 3px solid var(--c-app); border-radius: 8px; background: linear-gradient(180deg, rgba(167, 139, 250, 0.08), transparent); }
+.tutor-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+.tutor-status { color: var(--c-link); }
+@keyframes ref-pulse { 0% { background: rgba(167, 139, 250, 0.45); } 100% { background: transparent; } }
+.pulse { animation: ref-pulse 1.2s ease-out 1; outline: 1px solid var(--c-app); }
+[data-motion='reduced'] .pulse { animation: none; }

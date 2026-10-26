@@ -1,5 +1,22 @@
 # Test Evidence
 
+## Phase 13 — 2026-10-26
+
+Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **239 passed** (17 files; new `server/src/explain.test.ts` 6, `web/src/tutor/tutor.test.ts` 5), build ok (initial entry 143.34 kB + shared chunks 5.61 kB ≈ **148.95 kB gzip**; TutorPanel lazy 3.37 kB; no zod, key or provider URL in any web chunk), `check-no-secrets` clean (now also `nvapi-` shapes and the literal configured key; probe file with the real key value was detected and removed), Playwright **50 passed** (new `e2e/tutor.spec.ts` 3).
+
+`explain.test.ts` (mock provider, no network): success → 200, `live-ai`, `verified`, refs kept, key sent only as `Authorization: Bearer` to `{AI_BASE_URL}/chat/completions`, never in the response; malformed outputs (prose, wrong types, truncated JSON) → 502 `malformed`; invalid refs dropped and invented numbers (0xbeef, 12.5) → `generated` with caveats; timeout → 504, upstream 429 → 429, network rejection → 502, upstream 500 → 502; injection question travels inside the JSON facts (system prompt unchanged, marks it untrusted), response limited to the five allowed keys, model HTML returned verbatim as text; bounds: bad kind 400, 301-char question 400, 20 kB body 413, 4th request in the window 429, no provider 503, foreign origin 403.
+`tutor.test.ts`: bounded request from the current step (SYN forward → A SYN-SENT); built-in field/why/layer/compare answers labelled built-in with supplied refs ("TTL = 64", "Because of route:lookup at R1", "new frame", "three-way handshake"); stale race: a slow first answer resolving after the second is never applied; 504/429/network become statuses; only `/api/explain` is ever requested.
+E2E `tutor.spec.ts` (`/api/health` and `/api/explain` mocked): no provider → live checkbox disabled, consent text says explanations stay local, Explain layer / TCP vs UDP / Why did this happen all answer "Built-in explanation", the TTL field pulses once, zero requests to /api/explain; provider configured → nothing sent until the box is ticked; ticked → request carries kind/layer/question as data, answer labelled "Live AI · grounded…", page never navigates; HTML in an answer renders as text (no img, no script effect); 504 → "Live AI timed out (HTTP 504); showing the built-in explanation." with the Internet layer still selected; stale race in the browser: the late first answer never replaces the second.
+
+### Live AI (manual, real credentials)
+One request via the real server (`npx tsx server/src/index.ts`, `.env` with the NVIDIA endpoint and model) for a synthetic TTL field/event snapshot: HTTP 200 after 57 s; `source: live-ai`, `grounding: verified`, refs `["ipv4.ttl","e12"]`, explanation restricted to the supplied R1 forward facts with the caveat "Only R1's forwarding event is shown". Consequence: default upstream timeout raised from 20 s to 60 s. The browser UI against the real provider was not exercised; typical latency NOT MEASURED.
+
+### Repair log (phase 13)
+1. Rate limiter ran after body parsing, so oversized requests were not counted → limiter moved before parsing.
+2. First `hop:R1:forward` is the SYN; test expectation (ESTABLISHED) corrected to SYN-SENT (engine right).
+3. Built-in layer answers listed Version/IHL/DSCP first → key-field list per layer.
+4. 57 s live latency vs 20 s default timeout → 60 s default.
+5. Lint: Express error handler's required 4th parameter → commented disable.
 ## Phase 12 — 2026-10-26
 
 Command: `npm run verify` → typecheck 0, lint 0, vitest **228 passed** (15 files; new `shared/src/sim/compare.test.ts` 5, `web/src/practice/practice.test.ts` 1), build ok (initial entry 143.18 kB + shared chunks ≈ 5.6 kB ≈ 148.8 kB gzip; Compare 2.79 kB and Practice 3.49 kB lazy), secrets clean, Playwright **45/47** in the full run: `faults.spec` "handshake cannot be targeted…" and `motion.spec` "master timeline duration…" timed out under load (30 s); both, and the rest of those two specs (11/11), passed on an immediate rerun. New `e2e/compare.spec.ts` 3/3.

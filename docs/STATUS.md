@@ -1,5 +1,25 @@
 # Status
 
+## Phase 13 · Grounded AI tutor — COMPLETE (2026-10-26)
+
+### Completed
+- `shared/src/tutor.ts` contract + grounding (`ground`), `server/src/provider.ts` (OpenAI-compatible adapter), `POST /api/explain` with origin, size, schema, question-length, rate-limit and timeout bounds; no logging of keys or learner text.
+- Built-in explanations (layer, field, why, TCP vs UDP) that work fully without a key, labelled "Built-in explanation".
+- Tutor panel (lazy) in the inspector: four buttons, optional question, explicit live-AI consent, status on timeout/errors with built-in fallback, stale-response protection, typed validated answers, reference pulse.
+- Secrets scanner extended (nvapi- shape + literal configured key).
+- Live AI: ONE manual smoke request through the real server and the configured NVIDIA endpoint succeeded (see TEST_EVIDENCE); automated tests use mocks only.
+
+### Commands and results
+`npm run verify` exit 0: vitest 239/239, build ok (initial ≈ 148.95 kB gzip), secrets clean, Playwright 50/50. Manual live smoke: HTTP 200 in 57 s, grounded. Details: `TEST_EVIDENCE.md`.
+
+### Open issues
+- Live latency: one sample took 57 s (reasoning model); default upstream timeout raised to 60 s. Typical latency NOT MEASURED.
+- Live AI in the browser UI was not exercised end to end against the real provider (only the server endpoint manually); the UI path is covered with mocked responses.
+- The NVIDIA API key was pasted into a chat: rotate it and update `.env`.
+- Markdown rendering is not used (plain text only).
+
+## Next phase: **14**
+
 ## Phase 12 · Compare and prediction modes — COMPLETE (2026-10-26)
 
 ### Completed
@@ -15,7 +35,6 @@ vitest 228/228; build ok (initial ≈ 148.8 kB gzip); secrets clean; Playwright 
 - Compare covers raw echo only (HTTP compare not offered); faults in Compare target hop 0.
 - 3D side-by-side compare: NOT BUILT. AI tutor: NOT BUILT.
 
-## Next phase: **13**
 
 ## Phase 11 · Fault lab — COMPLETE (2026-10-26)
 
