@@ -4,6 +4,7 @@ import { Segmented } from './ui.tsx';
 import { LAYERS, LayerGlyph, type LayerId } from './layers.tsx';
 import { fmtTime } from './format.ts';
 import { TcpCards } from './TcpCards.tsx';
+import { depthOf } from './scene/model.ts';
 
 // 2D SVG journey: the permanent WebGL fallback. Renders only snapshot + event data.
 
@@ -13,19 +14,6 @@ const KIND_LABEL: Record<string, string> = {
   syn: 'SYN', 'syn-ack': 'SYN-ACK', 'hs-ack': 'ACK', data: 'REQ', response: 'REPLY', ack: 'ACK', 'response-ack': 'ACK',
   'fin-client': 'FIN', 'ack-fin-client': 'ACK', 'fin-server': 'FIN', 'ack-fin-server': 'ACK',
 };
-
-/** How many layers wrap the packet at this moment (1 = app data only … 4 = full frame). */
-const DEPTH: [RegExp, number][] = [
-  [/^app:(send|respond)$/, 1],
-  [/^encap:transport$/, 2],
-  [/^encap:internet$/, 3],
-  [/^hop:.+:forward$/, 3],
-  [/^(decap:link|verify:internet|drop:internet|drop:ttl|route:lookup)$/, 3],
-  [/^(decap:internet|verify:transport|socket:|drop:transport)/, 2],
-  [/^(decap:transport|deliver:app|app:processed|tcp:duplicate|ack)/, 1],
-  [/^(encap:link|hop:|verify:link|drop|tcp:retransmit)/, 4],
-];
-const depthOf = (tag: string) => DEPTH.find(([re]) => re.test(tag))?.[1] ?? 0;
 
 function hexRun(b: readonly number[], max = 48) {
   const s = b.slice(0, max).map((x) => hex(x)).join(' ');
@@ -169,7 +157,13 @@ function ScopePanel({ run, scope, ev, frame, linkId }: { run: SimRun; scope: Sco
   );
 }
 
-export function Journey2D({ run, index, onStep }: { run: SimRun; index: number; onStep: (i: number) => void }) {
+export function Journey2D({ run, index, onStep, selectedDevice, onSelectDevice }: {
+  run: SimRun;
+  index: number;
+  onStep: (i: number) => void;
+  selectedDevice: string | null;
+  onSelectDevice: (id: string) => void;
+}) {
   const [scope, setScope] = useState<Scope>('hop');
   const ev = run.events[index];
   const s = run.timeline.at(index);
@@ -207,7 +201,7 @@ export function Journey2D({ run, index, onStep }: { run: SimRun; index: number; 
           { value: 'hop', label: 'Hop ↔ hop' },
         ]}
       />
-      <svg viewBox={`0 0 ${W} 150`} className="journey-svg" role="img" aria-label={`Step ${index + 1} of ${run.events.length}: ${ev.tag} at ${ev.device}; scope ${scope}`}>
+      <svg viewBox={`0 0 ${W} 150`} className="journey-svg" role="group" aria-label={`Step ${index + 1} of ${run.events.length}: ${ev.tag} at ${ev.device}; scope ${scope}`}>
         {scope !== 'hop' && (
           <path
             d={`M ${xa} 64 C ${xa} 6, ${xb} 6, ${xb} 64`}
@@ -242,7 +236,23 @@ export function Journey2D({ run, index, onStep }: { run: SimRun; index: number; 
           const dim = scope !== 'hop' && !isEnd;
           const scopedEnd = scope !== 'hop' && isEnd;
           return (
-            <g key={d} transform={`translate(${xOf(d) - NODE_W / 2}, 64)`} opacity={dim ? 0.5 : 1}>
+            <g
+              key={d}
+              transform={`translate(${xOf(d) - NODE_W / 2}, 64)`}
+              opacity={dim ? 0.5 : 1}
+              role="button"
+              tabIndex={0}
+              className="svg-node"
+              data-testid={`svg-node-${d}`}
+              aria-label={`Select device ${d} (${dev?.kind ?? 'host'})`}
+              aria-pressed={selectedDevice === d}
+              onClick={() => onSelectDevice(d)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                onSelectDevice(d);
+              }}
+            >
               <rect
                 width={NODE_W}
                 height={56}

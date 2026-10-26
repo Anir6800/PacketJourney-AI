@@ -154,3 +154,28 @@ Close is triggered by the client app once its data is ACKed and (if a reply is e
 
 ## D-046 · HTTP session demo = two separate simulations
 `simulateHttpSession(base, cookieB)` runs connection A (`GET /`, no cookie → server issues `Set-Cookie: sid=demo-xxxxxxxx`) to completion including TIME-WAIT, then connection B (`GET /profile`, client port + 1, ISNs + 1000, seed + 1) whose server starts with A's in-memory session table. Each connection keeps its own virtual clock; the UI switches A/B. Ids are deterministic from the seed (`demo-` + 8 hex), never random or secret. The server app answers 200 OK with a UTF-8 body containing an em dash so Content-Length (bytes) differs from the character count. Missing or unknown cookie → unrecognized + new id. No session-layer header; no browser cookies; HTTP is plain text; TLS NOT BUILT. UDP: HTTP mode is rejected by validation and the UI option is disabled with the reason; switching to UDP resets the mode to raw.
+
+## D-047 · 3D renders a pure scene model (2026-10-26)
+`web/src/scene/model.ts` derives devices, links (subnet labels), interface labels and packet shells from the run + current step (frame bytes and event args only). `JourneyStage3D` renders that model and nothing else; shells use the same depth table as the 2D layer cards (moved there from `Journey2D`). Unit-tested against the fixtures.
+
+## D-048 · The 3D viewport lives in the Journey tab
+The old full-stage background canvas sat under opaque panels. The stage is now a 440 px viewport (560 px on ≤768 px screens) at the top of the Journey tab; the 2D SVG journey, step controls, captions and inspector stay below it as the keyboard path. When WebGL2 is missing, View = 2D or the context is lost, a "2D view · reason" note replaces the canvas and the same 2D journey remains.
+
+## D-049 · Labels are projected DOM, not drei `Html`
+drei `Html` creates extra React roots; under StrictMode it logged "synchronously unmount a root" errors and dropped labels. Labels are now plain DOM in the main tree, positioned each rendered frame by projecting 3D anchors (no React state per frame). They stay crisp, selectable by tests and legible at 390 px.
+
+## D-050 · Narrow stages use a column layout
+Below 560 px stage width the same scene is laid out top→bottom (`columnLayout`): device/link labels on the left, interface IP/MAC on the right. Entities, labels and shells are identical (unit-tested).
+
+## D-051 · Leaks and context loss found during verification
+- `hasWebGL()` created a WebGL context on every App render; after ~16 the browser dropped the live stage's context. Now probed once per page.
+- drei `Outlines` builds its geometry imperatively and never disposes it on unmount; outlines are now always mounted and toggled by `visible`.
+- drei `Instances` for the bit stream leaked one geometry per mount; replaced by one permanently mounted `instancedMesh` that is hidden or updated.
+- Static scene parts (environment, effects) are memoised components.
+Result: renderer.info.memory constant across five resets (TEST_EVIDENCE).
+
+## D-052 · Procedural environment and grid without drei loaders
+drei `Environment` and `Grid` pushed the lazy chunk over its 300 KB gzip budget (300.95 KB), mostly from HDR/EXR loaders never used here. Replaced with three's procedural `RoomEnvironment` through PMREM (no files, disposed on unmount) and `GridHelper` faded by scene fog → 281 KB.
+
+## D-053 · Camera rigs jump; frame loop on demand
+Overview / Follow packet / Inspect layers place the camera instantly (cue-driven moves are phase 09; Reduced never animates the camera). OrbitControls have damping and distance limits and work while paused. `frameloop` is `demand` while paused, `always` only while playing (playback NOT BUILT, so always demand) and `never` when the tab is hidden or the context is lost. Bloom + vignette are off under Reduced motion and after 30 missed frame budgets. Playwright runs with one worker because every page renders SwiftShader WebGL on the CPU.

@@ -1,5 +1,34 @@
 # Test Evidence
 
+## Phase 08 — 2026-10-26
+
+Command: `npm run verify` (exit 0) → typecheck 0, lint 0, vitest **194 passed** (9 files; new `web/src/scene/model.test.ts` 5), build ok (initial **136.25 kB gzip**, lazy `JourneyStage3D` **281.26 kB gzip**, budget 300), secrets clean, Playwright **28 passed** (1 worker).
+
+`model.test.ts`: same-LAN → hosts A, B; link `L1 · 192.0.2.0/24`; interface labels `A.eth0 192.0.2.10/24 / 02:00:00:00:0a:10`, `B.eth0 …`. Routed → host, router, router, host; `L1 · 192.0.2.0/24`, `L2 · 198.51.100.0/30`, `L3 · 203.0.113.0/24`; 6 interfaces; R1 2 ports. Shells: app:send [app]; encap:transport [transport, app]; encap:internet [+internet]; encap:link [link, internet, transport, app] with token colours and `Ethernet · 02:00:00:00:0a:10 → 02:00:00:00:01:00`; R1 decap:link [internet, transport, app]; hop:R1:forward `TTL 64 → 63`; R1 encap:link `Ethernet · 02:00:00:00:01:01 → 02:00:00:00:02:00` + `TTL 63`; hop:R1:egress on L2 with bit stream; B decap:internet [transport, app]; B deliver [app]; state-only event → no packet. Column layout keeps devices/labels/shells, ordered top→bottom.
+
+E2E `stage3d.spec.ts` (via `__pj.scene()`, which traverses the mounted scene graph; the step it reports is the one committed to the graph):
+- lazy chunk requested; canvas aria-label; same-LAN 2 devices / 1 link / labels; routed 4 devices / 3 subnet links / 6 interface labels; `L2 · 198.51.100.0/30` visible DOM text.
+- Shell layers and colours at app:send, encap:transport, encap:internet, encap:link, R1 decap:link (link shell gone), hop:R1:forward (`TTL 64 → 63` also in the visible shell label), R1 encap:link (new MACs), hop:R1:egress (L2 active, bit stream + "bit stream · teaching view"), B decap:internet, B deliver.
+- Mouse click on the projected centre of `device-R2` → inspector `R2 · router` with `198.51.100.2/30`, scene R2 selected, SVG node R2 aria-pressed; keyboard Enter on SVG node R1 → inspector R1, scene selection [R1]; click on app shell → inspector "Application".
+- View 2D: no canvas, note `2D view · View set to 2D`, same journey step text and identical event tag list; no WebGL (getContext → null) → `WebGL unavailable`, 2D journey visible.
+- Synthetic `webglcontextlost` → note `WebGL context lost`, 3D hidden; `webglcontextrestored` → 3D back, note gone.
+- Reduced motion → `Effects off · Reduced motion`, hook postprocessing false. **renderer.info.memory across 5 resets (after one warm-up): [22/2, 22/2, 22/2, 22/2, 22/2] geometries/textures.**
+- 1440×900 and 390×844: each device label's box inside the stage.
+
+### Screenshot observations
+- `stage3d-1440.png` (stage 682×441, routed, hop:R1:forward, Overview): A terminal, R1 and R2 teal hex prisms, B terminal left→right; amber link labels `L1 · 192.0.2.0/24`, `L2 · 198.51.100.0/30`, `L3 · 203.0.113.0/24` above dashed tube links; six interface labels in two staggered rows below, none overlapping; glowing packet above R1 with list "Internet IPv4 · 192.0.2.10 → 203.0.113.20 · TTL 64 → 63 / Transport UDP · 50000 → 7007 / Application · 5 B"; camera bar top-left, "BLOOM + VIGNETTE" bottom-right; grid fades into fog.
+- `stage3d-390.png` (column layout, 324×561): A host, R1, R2, B stacked top→bottom; link labels on the left, interface IP/MAC on the right, all readable; the wrapped shell list sits beside the packet at R1 and covers part of `R1.eth0`'s label (open issue).
+- Chrome (dev server): Inspect layers first framed the shells too close and clipped the label → camera pulled back and aimed right of the packet.
+
+### Repair log (phase 08)
+1. drei `Html` labels → StrictMode "synchronously unmount a root" console errors and a missing link label → replaced by projected DOM labels (D-049).
+2. Geometry count grew per reset. Instrumented: bit stream `Instances` (+1/mount) → permanent instanced mesh; static scene parts memoised; drei `Outlines` (+1 per shell toggle, default Transport selection) → always mounted, `visible` toggled (D-051).
+3. Shell e2e "one step behind": first the test read the step text before the log's async toggle handler; then the real cause, "Too many active WebGL contexts", from `hasWebGL()` probing on every render, which killed the stage's context → probe once (D-051).
+4. Labels overflowed at 390 px → column layout (D-050); taller mobile viewport.
+5. Lazy chunk 300.95 kB > 300 → RoomEnvironment + GridHelper (D-052) → 281.26 kB.
+6. Two spec files ran in parallel workers and starved SwiftShader (7 timeouts, incl. existing boot tests) → `workers: 1`; the shells test (14 steps) has a 90 s timeout.
+7. Full run with the Chrome 3D tab open: 2 slow-machine timeouts that passed in isolation; closed the tab, final verify 28/28.
+
 ## Phase 07 — 2026-10-26
 
 Command: `npm run verify` → typecheck 0, lint 0, vitest **189 passed** (8 files; new `close.test.ts` 21), build ok (initial **134.21 kB gzip**), secrets clean, Playwright **21 passed** (second run; see repair log 3).

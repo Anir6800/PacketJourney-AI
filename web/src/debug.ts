@@ -5,6 +5,16 @@ export type PjDebug = {
   contextLost: boolean;
   bootCompletions: number;
   gsapActive: () => number;
+  /** Dev/test builds only (JourneyStage3D): mounted scene entities, shell states and labels. */
+  scene?: () => unknown;
+  /** Dev/test builds only: renderer.info memory + last frame draw calls. */
+  renderInfo?: () => { geometries: number; textures: number; calls: number };
+  /** Rendered 3D frames (demand rendering: should stay flat while idle). */
+  frames?: number;
+  /** Dev/test builds only: unique geometries referenced by the scene graph. */
+  sceneGeometries?: () => number;
+  /** Dev/test builds only: page coordinates of a named 3D object. */
+  screenOf?: (name: string) => { x: number; y: number } | null;
 };
 
 declare global {

@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_SIM,
   RunController,
   continueHttpSession,
+  explain,
   hex,
   httpSessionConfigs,
   representations,
@@ -26,11 +27,14 @@ import { LAYERS, LayerGlyph, type LayerId } from './layers.tsx';
 import { FieldDetail, HeaderView } from './HeaderView.tsx';
 import { SnapshotDetail } from './SnapshotDetail.tsx';
 import { SessionPanel } from './SessionPanel.tsx';
+import { DeviceDetail } from './DeviceDetail.tsx';
+import { sceneModel } from './scene/model.ts';
+import { selection, useSelection, type Selection } from './selection.ts';
 import { fmtTime } from './format.ts';
 import { hasWebGL, type Motion, type View } from './settings.ts';
 import { useBoot } from './useBoot.ts';
 
-const Stage3D = lazy(() => import('./Stage3D.tsx'));
+const JourneyStage3D = lazy(() => import('./JourneyStage3D.tsx'));
 
 type Ai = 'checking' | 'online' | 'unconfigured' | 'offline';
 type Mode = 'story' | 'lab';
@@ -76,11 +80,15 @@ export function App() {
   const reduced = motion === 'reduced';
 
   const [mode, setMode] = useState<Mode>('story');
-  const [view, setView] = useState<View>(() => (hasWebGL() ? '3d' : '2d'));
+  const [view, setView] = useState<View>('3d');
   const [contextLost, setContextLost] = useState(false);
   const [tab, setTab] = useState<Tab>('journey');
   const [ai, setAi] = useState<Ai>('checking');
-  const [selected, setSelected] = useState<LayerId>('transport');
+  const sel = useSelection();
+  const selected: LayerId = sel.kind === 'layer' ? sel.layer : 'transport';
+  /** True when the inspector shows the shared 3D/2D selection rather than an event snapshot or header field. */
+  const [showSel, setShowSel] = useState(false);
+  const [docHidden, setDocHidden] = useState(() => document.hidden);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
   // One controller per app; each Run freezes the config and replaces the previous run entirely.
@@ -95,7 +103,7 @@ export function App() {
   const [conn, setConn] = useState<'a' | 'b'>('a');
   const [cookieB, setCookieB] = useState<CookieChoice>('valid');
   /** The connection on stage: the single run, or connection A/B of the session demo. */
-  const run = ses ? { ...(conn === 'a' ? ses.s.a : ses.s.b), runId: latest.runId } : latest;
+  const run = useMemo(() => (ses ? { ...(conn === 'a' ? ses.s.a : ses.s.b), runId: latest.runId } : latest), [ses, conn, latest]);
   /** Editable draft; the stage always shows the last run's config until the user runs it. */
   const [draft, setDraft] = useState<SimConfig>(() => structuredClone(first.config));
   const proto = draft.protocol;
@@ -114,7 +122,10 @@ export function App() {
   }, [motion]);
 
   useEffect(() => {
-    const sync = () => (document.documentElement.dataset.hidden = String(document.hidden));
+    const sync = () => {
+      document.documentElement.dataset.hidden = String(document.hidden);
+      setDocHidden(document.hidden);
+    };
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => document.removeEventListener('visibilitychange', sync);
@@ -170,11 +181,25 @@ export function App() {
   const selectEvent = (i: number) => {
     setSelectedEvent(i);
     setSelectedField(null);
+    setShowSel(false);
+    openInspector();
+  };
+  /** One entry point for 3D clicks, 2D journey nodes and the layer stack. */
+  const pick = (s: Selection) => {
+    selection.set(s);
+    setShowSel(true);
+    setSelectedField(null);
     openInspector();
   };
   const selField = selectedField ? field(snap, selectedField) : undefined;
-  const webgl = view === '3d' && !contextLost && hasWebGL();
-  const fallbackReason = view === '2d' ? 'View set to 2D' : contextLost ? 'WebGL context lost' : 'WebGL unavailable';
+  const webglWanted = view === '3d' && hasWebGL();
+  const webgl = webglWanted && !contextLost;
+  const curEv = run.events[journeyIndex];
+  const model = useMemo(
+    () => sceneModel(run, journeyIndex, curEv ? `Step ${journeyIndex + 1} of ${run.events.length}: ${explain(curEv)}` : ''),
+    [run, journeyIndex, curEv],
+  );
+  const fallbackReason = !hasWebGL() ? 'WebGL unavailable' : view === '2d' ? 'View set to 2D' : contextLost ? 'WebGL context lost' : '';
 
   const unitLen = (l: LayerId) => (l === 'physical' ? 0 : (snap.units[l]?.length ?? 0));
   const inner: Record<string, LayerId | null> = { link: 'internet', internet: 'transport', transport: 'app', app: null };
@@ -237,15 +262,6 @@ export function App() {
         </aside>
 
         <section className="stage glass hud-enter" aria-label="Journey stage">
-          <div className="stage-bg">
-            {webgl ? (
-              <Suspense fallback={<StateView kind="loading" title="Loading 3D stage…" />}>
-                <Stage3D onContextLost={() => setContextLost(true)} />
-              </Suspense>
-            ) : (
-              <Stage2D reason={fallbackReason} />
-            )}
-          </div>
           <div className="stage-overlay">
             <Tabs label="Stage views" tabs={TABS} value={tab} onChange={setTab} />
             <div className="tab-panel scrim" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
@@ -262,7 +278,33 @@ export function App() {
                       }}
                     />
                   )}
-                  <Journey2D key={`${run.runId}:${conn}`} run={run} index={journeyIndex} onStep={selectEvent} />
+                  <div className="viewport">
+                    {webglWanted && (
+                      <div className="viewport-3d" hidden={contextLost}>
+                        <Suspense fallback={<Stage2D reason="Loading 3D stage… the 2D journey below is ready" />}>
+                          <JourneyStage3D
+                            model={model}
+                            selected={sel}
+                            onSelect={pick}
+                            reduced={reduced}
+                            playing={false}
+                            hidden={docHidden || contextLost}
+                            onContextLost={() => setContextLost(true)}
+                            onContextRestored={() => setContextLost(false)}
+                          />
+                        </Suspense>
+                      </div>
+                    )}
+                    {!webgl && <Stage2D reason={fallbackReason} />}
+                  </div>
+                  <Journey2D
+                    key={`${run.runId}:${conn}`}
+                    run={run}
+                    index={journeyIndex}
+                    onStep={selectEvent}
+                    selectedDevice={sel.kind === 'device' ? sel.id : null}
+                    onSelectDevice={(id) => pick({ kind: 'device', id })}
+                  />
                   <ol className="stack" aria-label="Layer stack (SIMULATED)">
                     {stack.map((r) => (
                       <li key={r.layer}>
@@ -270,12 +312,8 @@ export function App() {
                           type="button"
                           className="stack-row"
                           style={{ '--layer': `var(--c-${r.layer})` } as React.CSSProperties}
-                          aria-pressed={!selectedField && selected === r.layer}
-                          onClick={() => {
-                            setSelected(r.layer);
-                            setSelectedField(null);
-                            openInspector();
-                          }}
+                          aria-pressed={!selectedField && sel.kind === 'layer' && selected === r.layer}
+                          onClick={() => pick({ kind: 'layer', layer: r.layer })}
                         >
                           <LayerGlyph layer={r.layer} />
                           <span className="code mono">{LAYERS[r.layer].code}</span>
@@ -312,6 +350,7 @@ export function App() {
                   onSelect={(id) => {
                     setSelectedField(id);
                     setSelectedEvent(null);
+                    setShowSel(false);
                     openInspector();
                   }}
                 />
@@ -346,10 +385,12 @@ export function App() {
               </button>
             )}
           </div>
-          {evSnap && selectedEvent !== null ? (
+          {!showSel && evSnap && selectedEvent !== null ? (
             <SnapshotDetail s={evSnap} tag={run.events[selectedEvent]?.tag ?? ''} />
-          ) : selField ? (
+          ) : !showSel && selField ? (
             <FieldDetail f={selField} />
+          ) : sel.kind === 'device' ? (
+            <DeviceDetail t={run.template} id={sel.id} />
           ) : (
             <>
               <h2 className="layer-title" style={{ color: `var(--c-${selected})` }}>

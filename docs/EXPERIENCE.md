@@ -111,13 +111,13 @@ Overview (wide, elevated) · Stack (close orbit on one host) · Follow (trails p
 | Budget | Target | Measured |
 |---|---|---|
 | Initial JS before 3D chunk (gzip) | ≤ 150 KB | build output 125.76 KB gzip (phase 01); runtime NOT MEASURED |
-| Lazy 3D chunk (gzip) | ≤ 300 KB | build output 241.90 KB gzip |
+| Lazy 3D chunk (gzip) | ≤ 300 KB | build output 281.25 KB gzip (phase 08, journey stage) |
 | Draw calls per frame | ≤ 100 | 1 smoke mesh only; real scene NOT MEASURED |
 | DPR cap | 2 | enforced `dpr={[1, 2]}` |
 | Frame time (Cinematic, mid laptop) | ≤ 16.7 ms | NOT MEASURED |
 
 ## Accessibility
-- Essential text in DOM; WebGL is backdrop only.
+- Essential text in DOM; the 3D journey's labels are projected DOM, and every 3D entity has a 2D equivalent (journey map nodes, layer stack, inspector).
 - `prefers-reduced-motion` → Reduced by default (live media query until user chooses).
 - Every control keyboard-reachable; visible focus ring; tabs use arrow keys; Esc closes dialog/drawer.
 - Layers: colour + code + name + glyph shape.

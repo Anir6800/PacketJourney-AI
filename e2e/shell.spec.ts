@@ -19,34 +19,6 @@ test('dark shell shows SIMULATED badge and AI status', async ({ page }) => {
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(5, 7, 13)');
 });
 
-test('lazy 3D stage renders the smoke mesh', async ({ page }) => {
-  await skipBoot(page);
-  const chunks: string[] = [];
-  page.on('request', (r) => r.url().includes('Stage3D') && chunks.push(r.url()));
-  await page.goto('/');
-  await page.waitForFunction(() => window.__pj.stageReady);
-  expect(chunks.length).toBeGreaterThan(0);
-  expect(await page.evaluate(() => window.__pj.drawCalls)).toBeGreaterThan(0);
-  await page.locator('.stage').screenshot({ path: 'test-results/stage-with-overlay.png' });
-  // Hide the DOM overlay only to sample the canvas itself.
-  await page.addStyleTag({ content: '.stage-overlay{visibility:hidden}' });
-  const png = await page.locator('canvas').screenshot({ path: 'test-results/stage-3d.png' });
-  const lit = await page.evaluate(async (src) => {
-    const img = new Image();
-    img.src = src;
-    await img.decode();
-    const c = document.createElement('canvas');
-    c.width = img.width;
-    c.height = img.height;
-    const ctx = c.getContext('2d');
-    if (!ctx) return 0;
-    ctx.drawImage(img, 0, 0);
-    const [r = 0, g = 0, b = 0] = ctx.getImageData(img.width / 2, img.height / 2, 1, 1).data;
-    return r + g + b;
-  }, `data:image/png;base64,${png.toString('base64')}`);
-  expect(lit).toBeGreaterThan(30);
-});
-
 test('View 2D shows the SVG fallback', async ({ page }) => {
   await skipBoot(page);
   await page.goto('/');
