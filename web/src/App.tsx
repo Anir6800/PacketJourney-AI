@@ -196,7 +196,10 @@ export function App() {
   const help = useRef<HTMLDialogElement>(null);
   const inspector = useRef<HTMLElement>(null);
 
-  const drawer = useMediaQuery('(max-width: 1280px) and (min-width: 769px)');
+  // Wide screens: the scene owns the screen; the menu (left) and details (right) are overlay drawers, closed by default.
+  const drawer = useMediaQuery('(min-width: 769px)');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
 
   // The 3D chunk loads after the intro: loading/compiling it during the intro stalls the main thread and stretches it.
   const booting = intro !== 'ready';
@@ -286,6 +289,9 @@ export function App() {
   useEffect(() => {
     if (drawer && drawerOpen) inspector.current?.focus();
   }, [drawer, drawerOpen]);
+  useEffect(() => {
+    if (drawer && menuOpen) menu.current?.focus();
+  }, [drawer, menuOpen]);
 
   const issues = validateSimConfig(draft);
   const dirty = ses ? !sameConfig(draft, ses.base) || cookieB !== ses.cookieB : !sameConfig(draft, latest.config);
@@ -578,7 +584,7 @@ export function App() {
   useEffect(() => {
     if (intro !== 'ready') return;
     let timer = 0;
-    const focusedControl = () => Boolean(document.activeElement?.closest('.hud, .inspector, .dock'));
+    const focusedControl = () => Boolean(document.activeElement?.closest('.hud, .side-left, .inspector, .dock, .float-bar'));
     const wake = () => {
       setChromeIdle(false);
       window.clearTimeout(timer);
@@ -634,7 +640,7 @@ export function App() {
     gsap.timeline()
       .fromTo('.sweep', { autoAlpha: 1, xPercent: -100 }, { xPercent: 100, duration: 0.9, ease: ease.inOut })
       .set('.sweep', { autoAlpha: 0 })
-      .fromTo('.hud-enter', { autoAlpha: 0, y: 12, filter: 'blur(8px)' },
+      .fromTo('.hud-enter, .float-bar', { autoAlpha: 0, y: 12, filter: 'blur(8px)' },
         { autoAlpha: 1, y: 0, filter: 'blur(0px)', duration: 0.6, ease: ease.out, stagger: 0.06, clearProps: 'filter,transform,opacity,visibility' }, 0.35);
   }, { scope: root, dependencies: [entrance, intro, reduced] });
 
@@ -665,9 +671,67 @@ export function App() {
     }} />
   </Suspense></MotionContext.Provider>;
 
+  // Journey data (2D map, scopes, ladder, layers, bytes, console, log): under the stage, or in the details drawer while 3D fills the screen.
+  const journeyExtras = (
+                <>
+                  <FaultChain events={run.events} step={journeyIndex} onStep={selectEvent} />
+                  <Journey2D
+                    key={`${run.runId}:${conn}`}
+                    run={run}
+                    index={journeyIndex}
+                    onStep={selectEvent}
+                    selectedDevice={sel.kind === 'device' ? sel.id : null}
+                    onSelectDevice={(id) => pick({ kind: 'device', id })}
+                    scope={beat?.scope ?? undefined}
+                    fx={{ timers: model.timers, notice: model.notice }}
+                  />
+                  {/* Story/Director keep the stage calm: secondary views fold away (Lab opens them by default). */}
+                  <details className="more" key={mode} open={mode === 'lab' || undefined}>
+                    <summary className="more-summary">More detail · ladder, layers, bytes, console, event log</summary>
+                    <Ladder run={run} cues={cues} reduced={reduced} />
+                    <ol className="stack" aria-label="Layer stack (SIMULATED)">
+                      {stack.map((r) => (
+                        <li key={r.layer}>
+                          <button
+                            type="button"
+                            className="stack-row"
+                            style={{ '--layer': `var(--c-${r.layer})` } as React.CSSProperties}
+                            aria-pressed={!selectedField && sel.kind === 'layer' && selected === r.layer}
+                            onClick={() => pick({ kind: 'layer', layer: r.layer })}
+                          >
+                            <LayerGlyph layer={r.layer} />
+                            <span className="code mono">{LAYERS[r.layer].code}</span>
+                            <span className="name">{LAYERS[r.layer].name}</span>
+                            <span className="bytes mono">
+                              {r.added > 0 && `+${r.added} B · `}
+                              {r.total} B
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                    <section aria-label="Payload bytes">
+                      <h3 className="hud-label">Payload · text / hex / binary</h3>
+                      <ol className="reps mono" data-testid="reps">
+                        {reps.map((r) => (
+                          <li key={r.byteStart} className="rep">
+                            <span className="rep-char">{r.char === ' ' ? '␠' : r.char}</span>
+                            <span className="rep-cp">U+{hex(r.codePoint, 4)}</span>
+                            <span className="rep-hex">{r.bytes.map((b) => hex(b)).join(' ')}</span>
+                            <span className="rep-bin">{r.bytes.map(bin).join(' ')}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                    <TypedConsole key={`${run.runId}:${lines.join('\n')}`} lines={lines} reduced={reduced} label="Encoding console" />
+                    <EventLog events={run.events} selected={selectedEvent} onSelect={selectEvent} />
+                  </details>
+                </>
+  );
+
   return (
     <MotionContext.Provider value={mo}>
-    <div className="app" ref={root} data-chrome-idle={chromeIdle} data-fullstage={webgl && tab === 'journey'} onKeyDown={(e) => e.key === 'Escape' && drawerOpen && setDrawerOpen(false)}>
+    <div className="app" ref={root} data-chrome-idle={chromeIdle} data-fullstage={webgl && tab === 'journey'} onKeyDown={(e) => { if (e.key === 'Escape') { setDrawerOpen(false); setMenuOpen(false); } }}>
       <p className="sr-only" aria-live="polite" data-testid="announcer">
         {curEv ? `Step ${journeyIndex + 1}: ${curEv.tag}. ${explain(curEv)}` : ''}
       </p>
@@ -676,7 +740,20 @@ export function App() {
         <div className="grid-plane" />
       </div>
 
-      <header className="hud glass hud-enter">
+      {drawer && (
+        <div className="float-bar">
+          <button type="button" className="btn float-btn" aria-expanded={menuOpen} aria-controls="menu" onClick={() => setMenuOpen((o) => !o)}>
+            ☰ Menu
+          </button>
+          <span className="float-sim mono" aria-hidden="true">SIMULATED</span>
+          <button type="button" className="btn float-btn" aria-expanded={drawerOpen} aria-controls="inspector" onClick={() => setDrawerOpen((o) => !o)}>
+            ⓘ Details
+          </button>
+        </div>
+      )}
+
+      <div id="menu" ref={menu} tabIndex={-1} className={`side-left${menuOpen ? ' open' : ''}`} inert={drawer && !menuOpen} aria-label="Menu" role={drawer ? 'region' : undefined}>
+      <header className="hud glass">
         <h1 className="wordmark">
           <span className="sr-only">PacketJourney AI</span>
           <span aria-hidden="true">
@@ -693,18 +770,20 @@ export function App() {
           <Segmented label="Motion" value={motion} onChange={setMotion} options={[{ value: 'cinematic', label: 'Cinematic' }, { value: 'reduced', label: 'Reduced' }]} />
           <Segmented label="View" value={view} onChange={(v) => { setView(v); if (v === '3d') setContextLost(false); }} options={[{ value: '3d', label: '3D' }, { value: '2d', label: '2D' }]} />
           {drawer && (
-            <button type="button" className="btn" aria-expanded={drawerOpen} aria-controls="inspector" onClick={() => setDrawerOpen((o) => !o)}>
-              Inspector
+            <button type="button" className="btn btn-icon drawer-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}>
+              ✕
             </button>
           )}
           <button type="button" className="btn btn-icon" aria-label="Help" onClick={() => help.current?.showModal()}>
             ?
           </button>
         </div>
+        {drawer && (
+          <Segmented label="Section" value={tab} onChange={(t) => { setTab(t); setMenuOpen(false); }} options={TABS.map((t) => ({ value: t.id, label: t.label }))} />
+        )}
       </header>
 
-      <main className="layout">
-        <aside className={`rail glass hud-enter${mode !== 'lab' ? ' rail-story' : ''}`} aria-label={mode === 'story' ? 'Story' : mode === 'director' ? 'Director' : 'Configuration'}>
+        <aside className={`rail glass${mode !== 'lab' ? ' rail-story' : ''}`} aria-label={mode === 'story' ? 'Story' : mode === 'director' ? 'Director' : 'Configuration'}>
           <HudLabel>{mode === 'story' ? 'Story Mode' : mode === 'director' ? 'Director Mode' : 'Lab Mode'}</HudLabel>
           {mode === 'story' ? (
             <StoryPanel
@@ -773,7 +852,9 @@ export function App() {
             </>
           )}
         </aside>
+      </div>
 
+      <main className="layout">
         <section className="stage glass hud-enter" aria-label="Journey stage">
           <div className="stage-overlay">
             <Tabs label="Stage views" tabs={TABS} value={tab} onChange={setTab} />
@@ -816,58 +897,7 @@ export function App() {
                     {!webgl && <Stage2D reason={fallbackReason} packet={model.packet} />}
                     <CueOverlay run={run} cues={cues} reduced={reduced} />
                   </div>
-                  <FaultChain events={run.events} step={journeyIndex} onStep={selectEvent} />
-                  <Journey2D
-                    key={`${run.runId}:${conn}`}
-                    run={run}
-                    index={journeyIndex}
-                    onStep={selectEvent}
-                    selectedDevice={sel.kind === 'device' ? sel.id : null}
-                    onSelectDevice={(id) => pick({ kind: 'device', id })}
-                    scope={beat?.scope ?? undefined}
-                    fx={{ timers: model.timers, notice: model.notice }}
-                  />
-                  {/* Story/Director keep the stage calm: secondary views fold away (Lab opens them by default). */}
-                  <details className="more" key={mode} open={mode === 'lab' || undefined}>
-                    <summary className="more-summary">More detail · ladder, layers, bytes, console, event log</summary>
-                    <Ladder run={run} cues={cues} reduced={reduced} />
-                    <ol className="stack" aria-label="Layer stack (SIMULATED)">
-                      {stack.map((r) => (
-                        <li key={r.layer}>
-                          <button
-                            type="button"
-                            className="stack-row"
-                            style={{ '--layer': `var(--c-${r.layer})` } as React.CSSProperties}
-                            aria-pressed={!selectedField && sel.kind === 'layer' && selected === r.layer}
-                            onClick={() => pick({ kind: 'layer', layer: r.layer })}
-                          >
-                            <LayerGlyph layer={r.layer} />
-                            <span className="code mono">{LAYERS[r.layer].code}</span>
-                            <span className="name">{LAYERS[r.layer].name}</span>
-                            <span className="bytes mono">
-                              {r.added > 0 && `+${r.added} B · `}
-                              {r.total} B
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ol>
-                    <section aria-label="Payload bytes">
-                      <h3 className="hud-label">Payload · text / hex / binary</h3>
-                      <ol className="reps mono" data-testid="reps">
-                        {reps.map((r) => (
-                          <li key={r.byteStart} className="rep">
-                            <span className="rep-char">{r.char === ' ' ? '␠' : r.char}</span>
-                            <span className="rep-cp">U+{hex(r.codePoint, 4)}</span>
-                            <span className="rep-hex">{r.bytes.map((b) => hex(b)).join(' ')}</span>
-                            <span className="rep-bin">{r.bytes.map(bin).join(' ')}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-                    <TypedConsole key={`${run.runId}:${lines.join('\n')}`} lines={lines} reduced={reduced} label="Encoding console" />
-                    <EventLog events={run.events} selected={selectedEvent} onSelect={selectEvent} />
-                  </details>
+                  {!(drawer && webgl) && journeyExtras}
                 </>
               )}
               {tab === 'headers' && (
@@ -905,7 +935,7 @@ export function App() {
           id="inspector"
           ref={inspector}
           tabIndex={-1}
-          className={`inspector glass hud-enter${drawer ? ' drawer' : ''}${drawerOpen ? ' open' : ''}`}
+          className={`inspector glass${drawer ? ' drawer' : ''}${drawerOpen ? ' open' : ''}`}
           aria-label="Inspector"
           inert={drawer && !drawerOpen}
         >
@@ -917,6 +947,11 @@ export function App() {
               </button>
             )}
           </div>
+          {drawer && webgl && tab === 'journey' && (
+            <section className="side-journey" aria-label="Journey data">
+              {journeyExtras}
+            </section>
+          )}
           {!showSel && evSnap && selectedEvent !== null ? (
             <SnapshotDetail s={evSnap} tag={run.events[selectedEvent]?.tag ?? ''} />
           ) : !showSel && selField ? (
